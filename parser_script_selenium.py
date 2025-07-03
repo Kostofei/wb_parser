@@ -1,91 +1,78 @@
 import os
-import django
 import time
-import unittest
+import django
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 
-# Установите переменную окружения DJANGO_SETTINGS_MODULE
+# Настройка Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
-
-# Настройте Django
 django.setup()
 
 from parser.models import Item
 
-NUMBER_OF_ITEMS_ON_PAGE = 100
+# Константы
+CHROMEDRIVER_PATH = r'./chromedriver.exe'  # Необходимо указать путь
+TARGET_URL = "https://www.wildberries.by/"
+ITEMS_PER_PAGE = 100             # Ожидаемое количество товаров на одной странице
+SCROLL_STEP = 1700               # Количество пикселей на шаг прокрутки страницы
+SCROLL_PAUSE = 3                 # Задержка (в секундах) после каждой прокрутки, чтобы успели подгрузиться элементы
+PAGE_LOAD_TIMEOUT = 5            # Время ожидания загрузки страницы после действий (например, после поиска)
+IMPLICIT_WAIT = 20               # Неявное ожидание элементов при поиске через Selenium
+
+# Переменные
+SEARCH_QUERY = "женские трусы"   # Поисковый запрос на сайте
+ITEMS_TO_PARSE = 1000             # Общее количество товаров, которые нужно распарсить
 
 
-# Функция для прокрутки страницы и загрузки всех элементов
-def scroll_and_load_all(driver, step=1700):
+def scroll_and_load_all(driver, step=SCROLL_STEP):
+    """Плавная прокрутка страницы до конца"""
     last_height = driver.execute_script("return document.body.scrollHeight")
-    print('прокрутка')
+    print("Начинаем прокрутку")
+
     while True:
-        # Прокручиваем на заданное количество пикселей
         driver.execute_script(f"window.scrollBy(0, {step});")
-
-        # Ждем загрузки страницы
-        time.sleep(3)
-
-        # Получаем новую высоту страницы и сравниваем с последней высотой
+        time.sleep(SCROLL_PAUSE)
         new_height = driver.execute_script("return document.body.scrollHeight")
         if new_height == last_height:
-            print('прокрутка все')
+            print("Прокрутка завершена")
             break
         last_height = new_height
-        print(f"Прокручено до {new_height} пикселей")
+        print(f"Прокручено до: {new_height} пикселей")
 
 
-class PythonOrgSearch(unittest.TestCase):
+def setup_driver():
+    """Настройка и возврат экземпляра драйвера"""
+    options = Options()
+    options.add_argument("--headless")
+    service = Service(CHROMEDRIVER_PATH)
+    # driver = webdriver.Chrome(service=service, options=options)
+    driver = webdriver.Chrome(service=service)
+    driver.implicitly_wait(IMPLICIT_WAIT)
+    return driver
 
-    def setUp(self):
-        # Настройка опций для Chrome в безголовом режиме
-        chrome_options = Options()
-        chrome_options.add_argument("--headless")  # Включение безголового режима
 
-        # Укажите полный путь к chromedriver.exe
-        service = Service(r'C:\PycharmProjects\test_task\wb_parser\chromedriver.exe')
-        # self.driver = webdriver.Chrome(service=service, options=chrome_options)
-        self.driver = webdriver.Chrome(service=service)
+def parse_products():
+    driver = setup_driver()
+    try:
+        driver.get(TARGET_URL)
+        time.sleep(PAGE_LOAD_TIMEOUT)
 
-    def test_search_in_python_org(self):
-        print(1)
-        driver = self.driver
-        driver.get("https://www.wildberries.by/")
-        time.sleep(5)
-        elem = driver.find_element(By.ID, "searchInput")
+        search_input = driver.find_element(By.ID, "searchInput")
+        search_input.clear()
+        search_input.send_keys(SEARCH_QUERY)
+        search_input.send_keys(Keys.RETURN)
+        time.sleep(PAGE_LOAD_TIMEOUT)
 
-        # Ожидание загрузки страницы
-        driver.implicitly_wait(20)
-        print(2)
-
-        elem.clear()
-        elem.send_keys("ноутбуки")
-        # elem.send_keys(input("Введите название товара: "))
-        # count_items = int(input("Введите количество товара для парсинга: "))
-        count_items = 200
-        # driver.find_element(By.ID, "applySearchBtn").click()
-        elem.send_keys(Keys.RETURN)
-        time.sleep(5)
-        print(3)
-
-        # Список для хранения информации о товарах
         products_info = []
 
-        print(4)
-
-        for i in range(int(count_items / NUMBER_OF_ITEMS_ON_PAGE)):
-            time.sleep(5)
-            # Прокручиваем страницу до конца
+        for page in range(ITEMS_TO_PARSE // ITEMS_PER_PAGE):
+            time.sleep(PAGE_LOAD_TIMEOUT)
             scroll_and_load_all(driver)
-            #product-card j-card-item j-analitics-item
             items = driver.find_elements(By.CLASS_NAME, "j-card-item")
-            # self.assertNotIn("No results found.", driver.page_source)
 
-            # Извлечение информации из каждой карточки
             for idx, item in enumerate(items):
                 try:
                     title = item.find_element(By.CSS_SELECTOR, "span.product-card__name").text
@@ -93,46 +80,43 @@ class PythonOrgSearch(unittest.TestCase):
                     discounted_price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
                     rating = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
 
-                    if title != '' and price != '':
+                    title = title[2:] if title.startswith('/ ') else title
+
+                    if title and price:
                         products_info.append({
-                            "title": title[2:] if title[0:2] == '/ ' else title,
+                            "title": title,
                             "price": price,
                             "discounted_price": discounted_price,
                             "rating": rating
                         })
                 except Exception as e:
-                    print(idx, item.get_attribute("innerHTML"))
-                    print(f"Ошибка при обработке карточки: {e}")
+                    print(f"Ошибка в карточке #{idx}: {e}")
                     continue
 
-            if i != int(count_items / NUMBER_OF_ITEMS_ON_PAGE) - 1:
+            if page != (ITEMS_TO_PARSE // ITEMS_PER_PAGE) - 1:
                 try:
-                    next_page_button = driver.find_element(By.XPATH, '//*[@id="catalog"]/div/div[5]/div/a[7]')
-                    next_page_button.click()
-                    print("Нажата кнопка 'Следующая страница'")
+                    next_button = driver.find_element(By.XPATH, '//*[@id="catalog"]/div/div[5]/div/a[7]')
+                    next_button.click()
+                    print("Перешли на следующую страницу")
                 except Exception as e:
-                    print('--', e)
-                    print('break')
+                    print(f"Ошибка при переходе на следующую страницу: {e}")
                     break
 
-        print('----------------')
-        print(f"Количество изделий в обработке: {len(products_info)}")
-        print('----------------')
-        # Вывод информации о товарах
-        for idx, product in enumerate(products_info, start=1):
+        print(f"Всего товаров собрано: {len(products_info)}")
+
+        for idx, product in enumerate(products_info, 1):
             item = Item(
                 title=product["title"],
                 price=product["price"],
                 discounted_price=product["discounted_price"],
-                rating=product["rating"],
+                rating=product["rating"]
             )
             item.save()
-            print(f"Сохранен товар {idx}: {item.title}")
+            print(f"[{idx}] Сохранено: {item.title}")
 
-    def tearDown(self):
-        time.sleep(30)
-        self.driver.close()
+    finally:
+        driver.quit()
 
 
 if __name__ == "__main__":
-    unittest.main()
+    parse_products()
