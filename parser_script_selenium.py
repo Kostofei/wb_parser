@@ -16,6 +16,8 @@ django.setup()
 
 from parser.models import Item
 
+NUMBER_OF_ITEMS_ON_PAGE = 100
+
 
 # Функция для прокрутки страницы и загрузки всех элементов
 def scroll_and_load_all(driver, step=1700):
@@ -61,46 +63,61 @@ class PythonOrgSearch(unittest.TestCase):
         print(2)
 
         elem.clear()
-        elem.send_keys("женские трусы")
+        elem.send_keys("ноутбуки")
+        # elem.send_keys(input("Введите название товара: "))
+        # count_items = int(input("Введите количество товара для парсинга: "))
+        count_items = 200
         # driver.find_element(By.ID, "applySearchBtn").click()
         elem.send_keys(Keys.RETURN)
         time.sleep(5)
         print(3)
 
-        # Прокручиваем страницу до конца
-        # scroll_and_load_all(driver)
-
-        print(4)
-        items = driver.find_elements(By.CLASS_NAME, "product-card")
-        # self.assertNotIn("No results found.", driver.page_source)
-        # print(items)
-        print(len(items))
-
         # Список для хранения информации о товарах
         products_info = []
 
-        # Извлечение информации из каждой карточки
-        for item in items:
-            try:
-                title = item.find_element(By.CSS_SELECTOR, "span.product-card__name").text
-                price = item.find_element(By.CSS_SELECTOR, "del").text
-                discounted_price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
-                rating = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
+        print(4)
 
-                if title != '' and price != '':
-                    products_info.append({
-                        "title": title[2:] if title[0:2] == '/ ' else title,
-                        "price": price,
-                        "discounted_price": discounted_price,
-                        "rating": rating
-                    })
-                    print(products_info[-1])
-            except Exception as e:
-                print('----------------')
-                print(item.get_attribute("innerHTML"))
-                print(f"Ошибка при обработке карточки: {e}")
-                continue
+        for i in range(int(count_items / NUMBER_OF_ITEMS_ON_PAGE)):
+            time.sleep(5)
+            # Прокручиваем страницу до конца
+            scroll_and_load_all(driver)
+            #product-card j-card-item j-analitics-item
+            items = driver.find_elements(By.CLASS_NAME, "j-card-item")
+            # self.assertNotIn("No results found.", driver.page_source)
 
+            # Извлечение информации из каждой карточки
+            for idx, item in enumerate(items):
+                try:
+                    title = item.find_element(By.CSS_SELECTOR, "span.product-card__name").text
+                    price = item.find_element(By.CSS_SELECTOR, "del").text
+                    discounted_price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
+                    rating = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
+
+                    if title != '' and price != '':
+                        products_info.append({
+                            "title": title[2:] if title[0:2] == '/ ' else title,
+                            "price": price,
+                            "discounted_price": discounted_price,
+                            "rating": rating
+                        })
+                except Exception as e:
+                    print(idx, item.get_attribute("innerHTML"))
+                    print(f"Ошибка при обработке карточки: {e}")
+                    continue
+
+            if i != int(count_items / NUMBER_OF_ITEMS_ON_PAGE) - 1:
+                try:
+                    next_page_button = driver.find_element(By.XPATH, '//*[@id="catalog"]/div/div[5]/div/a[7]')
+                    next_page_button.click()
+                    print("Нажата кнопка 'Следующая страница'")
+                except Exception as e:
+                    print('--', e)
+                    print('break')
+                    break
+
+        print('----------------')
+        print(f"Количество изделий в обработке: {len(products_info)}")
+        print('----------------')
         # Вывод информации о товарах
         for idx, product in enumerate(products_info, start=1):
             item = Item(
@@ -113,6 +130,7 @@ class PythonOrgSearch(unittest.TestCase):
             print(f"Сохранен товар {idx}: {item.title}")
 
     def tearDown(self):
+        time.sleep(30)
         self.driver.close()
 
 
