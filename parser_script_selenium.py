@@ -20,7 +20,7 @@ from parser.models import Item
 # Функция для прокрутки страницы и загрузки всех элементов
 def scroll_and_load_all(driver, step=1700):
     last_height = driver.execute_script("return document.body.scrollHeight")
-    print('прокutilsрутка')
+    print('прокрутка')
     while True:
         # Прокручиваем на заданное количество пикселей
         driver.execute_script(f"window.scrollBy(0, {step});")
@@ -46,6 +46,7 @@ class PythonOrgSearch(unittest.TestCase):
 
         # Укажите полный путь к chromedriver.exe
         service = Service(r'C:\PycharmProjects\test_task\wb_parser\chromedriver.exe')
+        # self.driver = webdriver.Chrome(service=service, options=chrome_options)
         self.driver = webdriver.Chrome(service=service)
 
     def test_search_in_python_org(self):
@@ -65,8 +66,10 @@ class PythonOrgSearch(unittest.TestCase):
         elem.send_keys(Keys.RETURN)
         time.sleep(5)
         print(3)
+
         # Прокручиваем страницу до конца
-        scroll_and_load_all(driver)
+        # scroll_and_load_all(driver)
+
         print(4)
         items = driver.find_elements(By.CLASS_NAME, "product-card")
         # self.assertNotIn("No results found.", driver.page_source)
@@ -84,13 +87,17 @@ class PythonOrgSearch(unittest.TestCase):
                 discounted_price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
                 rating = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
 
-                products_info.append({
-                    "title": title,
-                    "price": price,
-                    "discounted_price": discounted_price,
-                    "rating": rating
-                })
+                if title != '' and price != '':
+                    products_info.append({
+                        "title": title[2:] if title[0:2] == '/ ' else title,
+                        "price": price,
+                        "discounted_price": discounted_price,
+                        "rating": rating
+                    })
+                    print(products_info[-1])
             except Exception as e:
+                print('----------------')
+                print(item.get_attribute("innerHTML"))
                 print(f"Ошибка при обработке карточки: {e}")
                 continue
 
