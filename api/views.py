@@ -1,3 +1,11 @@
-from django.shortcuts import render
+from rest_framework import generics
+from rest_framework.pagination import LimitOffsetPagination
 
-# Create your views here.
+from api.serializers import ItemSerializers
+from parser.models import Item
+
+
+class ItemAPIView(generics.ListAPIView):
+    """Выводим все секций новостей"""
+    queryset = Item.objects.all()
+    serializer_class = ItemSerializers

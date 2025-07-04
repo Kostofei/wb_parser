@@ -16,15 +16,15 @@ from parser.models import Item
 # Константы
 CHROMEDRIVER_PATH = r'./chromedriver.exe'  # Необходимо указать путь
 TARGET_URL = "https://www.wildberries.by/"
-ITEMS_PER_PAGE = 100             # Ожидаемое количество товаров на одной странице
-SCROLL_STEP = 1700               # Количество пикселей на шаг прокрутки страницы
-SCROLL_PAUSE = 3                 # Задержка (в секундах) после каждой прокрутки, чтобы успели подгрузиться элементы
-PAGE_LOAD_TIMEOUT = 5            # Время ожидания загрузки страницы после действий (например, после поиска)
-IMPLICIT_WAIT = 20               # Неявное ожидание элементов при поиске через Selenium
+ITEMS_PER_PAGE = 100  # Ожидаемое количество товаров на одной странице
+SCROLL_STEP = 1700  # Количество пикселей на шаг прокрутки страницы
+SCROLL_PAUSE = 3  # Задержка (в секундах) после каждой прокрутки, чтобы успели подгрузиться элементы
+PAGE_LOAD_TIMEOUT = 5  # Время ожидания загрузки страницы после действий (например, после поиска)
+IMPLICIT_WAIT = 20  # Неявное ожидание элементов при поиске через Selenium
 
 # Переменные
-SEARCH_QUERY = "мастер-пул"   # Поисковый запрос на сайте
-ITEMS_TO_PARSE = 1000             # Общее количество товаров, которые нужно распарсить
+SEARCH_QUERY = "ноутбук"  # Поисковый запрос на сайте
+ITEMS_TO_PARSE = 1000  # Общее количество товаров, которые нужно распарсить
 
 
 def scroll_and_load_all(driver, step=SCROLL_STEP):
@@ -70,7 +70,7 @@ def parse_products():
 
         for page in range(ITEMS_TO_PARSE // ITEMS_PER_PAGE):
             time.sleep(PAGE_LOAD_TIMEOUT)
-            scroll_and_load_all(driver)
+            # scroll_and_load_all(driver)
             items = driver.find_elements(By.CLASS_NAME, "j-card-item")
 
             for idx, item in enumerate(items):
@@ -79,15 +79,23 @@ def parse_products():
                     price = item.find_element(By.CSS_SELECTOR, "del").text
                     discounted_price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
                     rating = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
+                    currency = item.find_element(By.XPATH,
+                                                 "/html/body/div[1]/header/div/div[1]/div/div[2]/span/span[2]").text
 
                     title = title[2:] if title.startswith('/ ') else title
+                    price = price[:-3] if price.endswith(' р.') else price
+                    discounted_price = discounted_price[:-3] if discounted_price.endswith(' р.') else discounted_price
+
+                    price = float(price.replace(',', '.').replace(' ', ''))
+                    discounted_price = float(discounted_price.replace(',', '.').replace(' ', ''))
 
                     if title and price:
                         products_info.append({
                             "title": title,
                             "price": price,
                             "discounted_price": discounted_price,
-                            "rating": rating
+                            "rating": rating,
+                            "currency": currency
                         })
                 except Exception as e:
                     print(f"Ошибка в карточке #{idx}: {e}")
@@ -105,12 +113,7 @@ def parse_products():
         print(f"Всего товаров собрано: {len(products_info)}")
 
         for idx, product in enumerate(products_info, 1):
-            item = Item(
-                title=product["title"],
-                price=product["price"],
-                discounted_price=product["discounted_price"],
-                rating=product["rating"]
-            )
+            item = Item(**product)
             item.save()
             print(f"[{idx}] Сохранено: {item.title}")
 
