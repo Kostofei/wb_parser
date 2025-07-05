@@ -1,4 +1,5 @@
 import os
+import re
 import time
 import django
 from selenium import webdriver
@@ -54,6 +55,21 @@ def setup_driver():
     return driver
 
 
+def parse_number_from_text(text):
+    if not isinstance(text, str):
+        return 0
+    text = text.replace(" ", "")
+    match = re.search(r'(\d+)', text)
+    if match:
+        number_str = match.group(1).replace(',', '.')  # Заменяем запятую на точку
+        number = float(number_str)  # Преобразуем в float
+        if number.is_integer():  # Проверяем, целое ли число
+            number = int(number)
+    else:
+        number = None
+    return number
+
+
 def parse_products():
     driver = setup_driver()
     try:
@@ -70,7 +86,7 @@ def parse_products():
 
         for page in range(ITEMS_TO_PARSE // ITEMS_PER_PAGE):
             time.sleep(PAGE_LOAD_TIMEOUT)
-            # scroll_and_load_all(driver)
+            scroll_and_load_all(driver)
             items = driver.find_elements(By.CLASS_NAME, "j-card-item")
 
             for idx, item in enumerate(items):
@@ -78,16 +94,16 @@ def parse_products():
                     title = item.find_element(By.CSS_SELECTOR, "span.product-card__name").text
                     price = item.find_element(By.CSS_SELECTOR, "del").text
                     discounted_price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
-                    rating = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
+                    rating = item.find_element(By.CSS_SELECTOR, "span.address-rate-mini").text
+                    rating_count = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
                     currency = item.find_element(By.XPATH,
                                                  "/html/body/div[1]/header/div/div[1]/div/div[2]/span/span[2]").text
 
                     title = title[2:] if title.startswith('/ ') else title
-                    price = price[:-3] if price.endswith(' р.') else price
-                    discounted_price = discounted_price[:-3] if discounted_price.endswith(' р.') else discounted_price
-
-                    price = float(price.replace(',', '.').replace(' ', ''))
-                    discounted_price = float(discounted_price.replace(',', '.').replace(' ', ''))
+                    price = parse_number_from_text(price)
+                    discounted_price = parse_number_from_text(discounted_price)
+                    rating = parse_number_from_text(rating)
+                    rating_count = parse_number_from_text(rating_count)
 
                     if title and price:
                         products_info.append({
@@ -95,7 +111,8 @@ def parse_products():
                             "price": price,
                             "discounted_price": discounted_price,
                             "rating": rating,
-                            "currency": currency
+                            "rating_count": rating_count if rating_count else 0,
+                            "currency": currency,
                         })
                 except Exception as e:
                     print(f"Ошибка в карточке #{idx}: {e}")

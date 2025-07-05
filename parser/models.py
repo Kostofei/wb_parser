@@ -45,7 +45,7 @@ class Item(models.Model):
         verbose_name="Количество оценок",
         blank=True,
         null=True,
-        default=None,
+        default=0,
         help_text="Сколько раз товар был оценён пользователями"
     )
     currency = models.CharField(
