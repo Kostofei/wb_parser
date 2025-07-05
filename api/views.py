@@ -1,4 +1,4 @@
-from rest_framework import generics
+from rest_framework.generics import ListAPIView
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 
@@ -7,7 +7,7 @@ from api.serializers import ItemSerializers
 from parser.models import Item
 
 
-class ItemAPIView(generics.ListAPIView):
+class ItemAPIView(ListAPIView):
     """
     Получение списка товаров
 
@@ -49,7 +49,7 @@ class ItemAPIView(generics.ListAPIView):
     serializer_class = ItemSerializers
 
 
-class ItemSearchAPIView(generics.ListAPIView):
+class ItemSearchAPIView(ListAPIView):
     """
     API endpoint для фильтрации товаров.
 
@@ -104,8 +104,3 @@ class ItemSearchAPIView(generics.ListAPIView):
     serializer_class = ItemSerializers
     filter_backends = [DjangoFilterBackend]
     filterset_class = ItemFilter
-
-
-
-
-
