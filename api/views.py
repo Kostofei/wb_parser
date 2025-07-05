@@ -2,13 +2,14 @@ from rest_framework import generics
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import filters
 
+from api.filters import ItemFilter
 from api.serializers import ItemSerializers
 from parser.models import Item
 
 
 class ItemAPIView(generics.ListAPIView):
     """
-    GET /api/v1/products/ - Получение списка товаров
+    Получение списка товаров
 
     Предоставляет список всех товаров в формате JSON через сериализатор ItemSerializer.
 
@@ -43,9 +44,6 @@ class ItemAPIView(generics.ListAPIView):
     - discounted_price (decimal|null): Цена со скидкой
     - rating (float): Рейтинг
     - currency (string): Код валюты
-
-    Возможные ошибки:
-    - 500: Ошибка сервера
     """
     queryset = Item.objects.all()
     serializer_class = ItemSerializers
@@ -53,50 +51,59 @@ class ItemAPIView(generics.ListAPIView):
 
 class ItemSearchAPIView(generics.ListAPIView):
     """
-    API endpoint для поиска товаров.
+    API endpoint для фильтрации товаров.
 
-    Этот класс предоставляет API endpoint для поиска товаров по различным полям.
-    Использует сериализатор `ItemSerializers` для преобразования данных в формат JSON.
+    Позволяет отфильтровать список товаров по следующим параметрам:
+    - цене (`price`, `min_price`, `max_price`)
+    - рейтингу (`rating`, `min_rating`, `max_rating`)
+    - количеству отзывов (`reviews`, `min_reviews`, `max_reviews`)
 
-    Атрибуты:
-        queryset (QuerySet): Запрос к базе данных для получения всех объектов модели `Item`.
-        serializer_class (ModelSerializer): Класс сериализатора, используемый для сериализации данных.
-        filter_backends (list): Список бэкендов фильтрации, используемых для фильтрации запросов.
-        search_fields (list): Список полей, по которым выполняется поиск.
+    Использует сериализатор `ItemSerializers` для преобразования объектов модели `Item` в формат JSON.
+
+    Поддерживаемые параметры запроса:
+        - `price` — точное значение цены
+        - `min_price`, `max_price` — диапазон цены
+        - `rating` — точное значение рейтинга
+        - `min_rating`, `max_rating` — диапазон рейтинга
+        - `reviews` — точное количество отзывов
+        - `min_reviews`, `max_reviews` — диапазон отзывов
 
     Пример использования:
-        Для поиска товаров выполните GET-запрос к этому endpoint с параметром `search`.
-        Пример запроса:
-        GET /api/items/search/?search=Название товара
+        Выполните GET-запрос с нужными параметрами:
 
-    Возвращаемые данные:
+        Примеры запросов:
+            GET /api/products/?min_price=1000&max_price=5000
+            GET /api/products/?rating=4.5
+            GET /api/products/?min_reviews=10
+
     Пример ответа (200 OK):
     ```json
     [
         {
-            "title": "Название товара",
-            "price": "Цена товара",
-            "discounted_price": "Цена со скидкой",
-            "rating": "Рейтинг товара",
-            "currency": "Валюта"
+            "id": 1,
+            "title": "Смартфон Galaxy",
+            "price": "4999.99",
+            "discounted_price": "4499.99",
+            "rating": "4.6",
+            "reviews_count": 152,
+            "currency": "BYN"
         },
         {
-            "title": "Название другого товара",
-            "price": "Цена другого товара",
-            "discounted_price": "Цена со скидкой другого товара",
-            "rating": "Рейтинг другого товара",
-            "currency": "Валюта"
+            "id": 2,
+            "title": "Планшет Tab X",
+            "price": "3200.00",
+            "discounted_price": "2999.00",
+            "rating": "4.5",
+            "reviews_count": 87,
+            "currency": "BYN"
         }
     ]
     ```
-
-    Возможные ошибки:
-    - 500: Ошибка сервера
     """
     queryset = Item.objects.all()
     serializer_class = ItemSerializers
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter]
-    search_fields = ['price', 'discounted_price', 'rating']
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = ItemFilter
 
 
 
