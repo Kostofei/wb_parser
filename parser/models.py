@@ -41,7 +41,7 @@ class Item(models.Model):
         default=None,
         help_text="Средняя оценка товара (от 0.0 до 5.0)"
     )
-    rating_count = models.PositiveIntegerField(
+    reviews_count = models.PositiveIntegerField(
         verbose_name="Количество оценок",
         blank=True,
         null=True,
@@ -55,7 +55,7 @@ class Item(models.Model):
     )
 
     def __str__(self):
-        return self.title
+        return f'{self.title}, {self.price}, {self.discounted_price}, {self.rating}, {self.reviews_count}, {self.currency}'
 
     class Meta:
         ordering = ["title"]

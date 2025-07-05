@@ -56,7 +56,7 @@ class ItemSearchAPIView(generics.ListAPIView):
     Позволяет отфильтровать список товаров по следующим параметрам:
     - цене (`price`, `min_price`, `max_price`)
     - рейтингу (`rating`, `min_rating`, `max_rating`)
-    - количеству отзывов (`reviews`, `min_reviews`, `max_reviews`)
+    - количеству отзывов (`reviews_count`, `min_reviews_count`, `max_reviews_count`)
 
     Использует сериализатор `ItemSerializers` для преобразования объектов модели `Item` в формат JSON.
 
@@ -65,8 +65,8 @@ class ItemSearchAPIView(generics.ListAPIView):
         - `min_price`, `max_price` — диапазон цены
         - `rating` — точное значение рейтинга
         - `min_rating`, `max_rating` — диапазон рейтинга
-        - `reviews` — точное количество отзывов
-        - `min_reviews`, `max_reviews` — диапазон отзывов
+        - `reviews_count` — точное количество отзывов
+        - `min_reviews_count`, `max_reviews_count` — диапазон отзывов
 
     Пример использования:
         Выполните GET-запрос с нужными параметрами:
@@ -74,7 +74,7 @@ class ItemSearchAPIView(generics.ListAPIView):
         Примеры запросов:
             GET /api/products/?min_price=1000&max_price=5000
             GET /api/products/?rating=4.5
-            GET /api/products/?min_reviews=10
+            GET /api/products/?min_reviews_count=10
 
     Пример ответа (200 OK):
     ```json

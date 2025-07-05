@@ -15,14 +15,14 @@ class ItemFilter(django_filters.FilterSet):
     max_rating = django_filters.NumberFilter(field_name='rating', lookup_expr='lte')
 
     # Фильтрация по количеству отзывов
-    reviews = django_filters.NumberFilter(field_name='reviews_count', lookup_expr='exact')
-    min_reviews = django_filters.NumberFilter(field_name='reviews_count', lookup_expr='gte')
-    max_reviews = django_filters.NumberFilter(field_name='reviews_count', lookup_expr='lte')
+    reviews_count = django_filters.NumberFilter(field_name='reviews_count', lookup_expr='exact')
+    min_reviews_count = django_filters.NumberFilter(field_name='reviews_count', lookup_expr='gte')
+    max_reviews_count = django_filters.NumberFilter(field_name='reviews_count', lookup_expr='lte')
 
     class Meta:
         model = Item
         fields = [
             'price', 'min_price', 'max_price',
             'rating', 'min_rating', 'max_rating',
-            'reviews', 'min_reviews', 'max_reviews'
+            'reviews_count', 'min_reviews_count', 'max_reviews_count'
         ]
