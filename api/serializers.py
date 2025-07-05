@@ -5,4 +5,4 @@ from parser.models import Item
 class ItemSerializers(serializers.ModelSerializer):
     class Meta:
         model = Item
-        fields = ['title', 'price', 'discounted_price', 'rating']
+        fields = '__all__'
