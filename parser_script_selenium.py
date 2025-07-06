@@ -16,8 +16,8 @@ django.setup()
 from parser.models import Item
 
 # Переменные
-search_query = "молды"  # Поисковый запрос на сайте
-items_to_parse = 50  # Общее количество товаров, которые нужно распарсить
+search_query = "ноутбук"  # Поисковый запрос на сайте
+items_to_parse = 1000  # Общее количество товаров, которые нужно распарсить
 
 # Константы
 CHROMEDRIVER_PATH = r'./chromedriver.exe'  # Необходимо указать путь
