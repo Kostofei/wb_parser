@@ -16,17 +16,16 @@ django.setup()
 from parser.models import Item
 
 # Переменные
-SEARCH_QUERY = "трусы"  # Поисковый запрос на сайте
-ITEMS_TO_PARSE = 250  # Общее количество товаров, которые нужно распарсить
+search_query = "молды"  # Поисковый запрос на сайте
+items_to_parse = 50  # Общее количество товаров, которые нужно распарсить
 
 # Константы
 CHROMEDRIVER_PATH = r'./chromedriver.exe'  # Необходимо указать путь
 TARGET_URL = "https://www.wildberries.by/"
-ITEMS_PER_PAGE = 100  # Ожидаемое количество товаров на одной странице
-SCROLL_STEP = 1700  # Количество пикселей на шаг прокрутки страницы
-SCROLL_PAUSE = 3  # Задержка (в секундах) после каждой прокрутки, чтобы успели подгрузиться элементы
-PAGE_LOAD_TIMEOUT = 5  # Время ожидания загрузки страницы после действий (например, после поиска)
-IMPLICIT_WAIT = 20  # Неявное ожидание элементов при поиске через Selenium
+REMAINING_TO_BOTTOM = 1500  # Количество пикселей на шаг прокрутки страницы
+SCROLL_PAUSE = 2  # Задержка (в секундах) после каждой прокрутки, чтобы успели подгрузиться элементы
+PAGE_LOAD_TIMEOUT = 4  # Время ожидания загрузки страницы после действий (например, после поиска)
+IMPLICIT_WAIT = 5  # Неявное ожидание элементов при поиске через Selenium
 
 
 def setup_driver() -> WebDriver:
@@ -35,47 +34,17 @@ def setup_driver() -> WebDriver:
     """
     options = Options()
     options.add_argument("--headless")
+    options.add_argument("--window-size=1920,1080")
+    options.add_argument("--disable-features=TranslateUI")
+    options.add_argument("--disable-background-networking")
+    options.add_argument("--disable-default-apps")
+    options.add_argument("--mute-audio")
+    options.add_argument("--disable-notifications")
     service = Service(CHROMEDRIVER_PATH)
-    # driver = webdriver.Chrome(service=service, options=options)
+    # driver = webdriver.Chrome(service=service, options=options)  # отключаем визуал
     driver = webdriver.Chrome(service=service)
     driver.implicitly_wait(IMPLICIT_WAIT)
     return driver
-
-
-def scroll_and_load_all(driver: WebDriver, step: int = SCROLL_STEP) -> None:
-    """
-    Прокручивает страницу вниз до конца, чтобы подгрузить все товары.
-    """
-    last_height = driver.execute_script("return document.body.scrollHeight")
-    print("Начинаем прокрутку")
-
-    while True:
-        driver.execute_script(f"window.scrollBy(0, {step});")
-        time.sleep(SCROLL_PAUSE)
-        new_height = driver.execute_script("return document.body.scrollHeight")
-        if new_height == last_height:
-            print("Прокрутка завершена")
-            break
-        last_height = new_height
-        print(f"Прокручено до: {new_height} пикселей")
-
-
-def parse_number_from_text(text: str) -> int | float | None:
-    """
-    Извлекает число из строки. Возвращает int, float или None.
-    """
-    if not isinstance(text, str):
-        return 0
-
-    text = text.replace(" ", "")
-    match = re.search(r'(\d+)', text)
-
-    if match:
-        number_str = match.group(1).replace(',', '.')  # Заменяем запятую на точку
-        number = float(number_str)  # Преобразуем в float
-        return int(number) if number.is_integer() else number
-
-    return None
 
 
 def setup_and_search(driver: WebDriver) -> None:
@@ -87,9 +56,45 @@ def setup_and_search(driver: WebDriver) -> None:
 
     search_input = driver.find_element(By.ID, "searchInput")
     search_input.clear()
-    search_input.send_keys(SEARCH_QUERY)
+    search_input.send_keys(search_query)
     search_input.send_keys(Keys.RETURN)
     time.sleep(PAGE_LOAD_TIMEOUT)
+
+
+def scroll_page(driver: WebDriver, max_scrolls: int = 100) -> None:
+    """
+    Прокручивает страницу, пока не останется offset пикселей до конца.
+    """
+    print(f"Прокрутка до {REMAINING_TO_BOTTOM}px от нижнего края страницы...")
+    for i in range(max_scrolls):
+        total_height = driver.execute_script("return document.body.scrollHeight")
+        current_scroll = driver.execute_script("return window.pageYOffset + window.innerHeight")
+
+        remaining = total_height - current_scroll
+        print(f"Шаг {i+1}: осталось до низа {remaining:.0f}px")
+
+        if remaining <= REMAINING_TO_BOTTOM:
+            print("Достигнут заданный уровень близости к низу страницы.")
+            break
+
+        driver.execute_script("window.scrollBy(0, 1000);")
+        time.sleep(SCROLL_PAUSE)
+    else:
+        print("Превышен лимит прокруток.")
+
+
+def go_to_next_page(driver: WebDriver) -> bool:
+    """
+    Переходит на следующую страницу. Возвращает True, если получилось.
+    """
+    try:
+        next_button = driver.find_element(By.PARTIAL_LINK_TEXT, 'Следующая страница')
+        next_button.click()
+        print("Перешли на следующую страницу")
+        return True
+    except Exception as e:
+        print(f"Не удалось перейти на следующую страницу: {e}")
+        return False
 
 
 def parse_product_card(item: WebElement) -> dict[str, object] | None:
@@ -124,18 +129,22 @@ def parse_product_card(item: WebElement) -> dict[str, object] | None:
         return None
 
 
-def go_to_next_page(driver: WebDriver) -> bool:
+def parse_number_from_text(text: str) -> int | float | None:
     """
-    Переходит на следующую страницу. Возвращает True, если получилось.
+    Извлекает число из строки. Возвращает int, float или None.
     """
-    try:
-        next_button = driver.find_element(By.XPATH, '//*[@id="catalog"]/div/div[5]/div/a[7]')
-        next_button.click()
-        print("Перешли на следующую страницу")
-        return True
-    except Exception as e:
-        print(f"Не удалось перейти на следующую страницу: {e}")
-        return False
+    if not isinstance(text, str):
+        return 0
+
+    text = text.replace(" ", "")
+    match = re.search(r'(\d+)', text)
+
+    if match:
+        number_str = match.group(1).replace(',', '.')  # Заменяем запятую на точку
+        number = float(number_str)  # Преобразуем в float
+        return int(number) if number.is_integer() else number
+
+    return None
 
 
 def parse_products() -> None:
@@ -150,8 +159,10 @@ def parse_products() -> None:
 
         while True:
             time.sleep(PAGE_LOAD_TIMEOUT)
-            scroll_and_load_all(driver)
-            items = driver.find_elements(By.CLASS_NAME, "j-card-item")
+            scroll_page(driver)
+            # items = driver.find_elements(By.CLASS_NAME, "j-card-item")
+            # items = driver.find_elements(By.CSS_SELECTOR, "article.j-card-item")
+            items = driver.find_elements(By.CSS_SELECTOR, "div.product-card__wrapper")
 
             for item in items:
                 product_data = parse_product_card(item)
@@ -160,18 +171,18 @@ def parse_products() -> None:
 
             print(f"Товаров собрано: {len(products_info)}")
 
-            if len(products_info) <= ITEMS_TO_PARSE:
+            if len(products_info) <= items_to_parse:
                 if not go_to_next_page(driver):
                     break
             else:
                 break
 
-        print(f"Всего товаров для сохранения в БД: {len(products_info[:ITEMS_TO_PARSE])} (лимит: {ITEMS_TO_PARSE})")
+        print(f"Всего товаров для сохранения в БД: {len(products_info[:items_to_parse])} (лимит: {items_to_parse})")
 
-        for idx, product in enumerate(products_info[:ITEMS_TO_PARSE], 1):
+        for idx, product in enumerate(products_info[:items_to_parse], 1):
             item = Item(**product)
             item.save()
-            print(f"[{idx}] Сохранено: {item.title}")
+            # print(f"[{idx}] Сохранено: {item.title}")
 
     finally:
         driver.quit()
