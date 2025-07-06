@@ -1,9 +1,10 @@
-from rest_framework.generics import ListAPIView
+from rest_framework.generics import ListAPIView, DestroyAPIView
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import filters
+from rest_framework.response import Response
+from rest_framework import status
 
 from api.filters import ItemFilter
-from api.serializers import ItemSerializers
+from api.serializers import ItemSerializer
 from parser.models import Item
 
 
@@ -46,7 +47,7 @@ class ItemAPIView(ListAPIView):
     - currency (string): Код валюты
     """
     queryset = Item.objects.all()
-    serializer_class = ItemSerializers
+    serializer_class = ItemSerializer
 
 
 class ItemSearchAPIView(ListAPIView):
@@ -101,6 +102,30 @@ class ItemSearchAPIView(ListAPIView):
     ```
     """
     queryset = Item.objects.all()
-    serializer_class = ItemSerializers
+    serializer_class = ItemSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = ItemFilter
+
+
+class DeleteAllItemsListAPIView(DestroyAPIView):
+    """
+    API endpoint для удаления всех записей модели Item.
+
+    Поддерживает только DELETE-запрос.
+    При успешном удалении возвращает количество удалённых записей.
+    """
+    queryset = Item.objects.all()
+
+    def delete(self, request, *args, **kwargs):
+        try:
+            # Удаляем все записи из модели Item
+            deleted_count, _ = self.get_queryset().delete()
+            return Response(
+                {"message": f"Все записи успешно удалены. Удалено записей: {deleted_count}."},
+                status=status.HTTP_204_NO_CONTENT
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

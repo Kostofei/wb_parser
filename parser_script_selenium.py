@@ -111,7 +111,7 @@ def parse_products():
                             "price": price,
                             "discounted_price": discounted_price,
                             "rating": rating,
-                            "rating_count": rating_count if rating_count else 0,
+                            "reviews_count": rating_count if rating_count else 0,
                             "currency": currency,
                         })
                 except Exception as e:

@@ -1,12 +1,57 @@
-<!DOCTYPE html>
+<!doctype html>
+{% load static %}
 <html lang="ru">
 <head>
-    <meta charset="UTF-8">
-    <title>Товары на WB</title>
+  <meta charset="UTF-8">
+  <title>Товары</title>
+  <link rel="stylesheet" href="{% static 'css/style.css' %}">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-{% for item in items %}
-<p>{{item}}</p>
-{% endfor %}
+
+<div class="filters-container">
+  <div class="filter-column">
+    <h3>Цена</h3>
+    <label>Мин: <input type="number" id="min_price" /></label>
+    <label>Макс: <input type="number" id="max_price" /></label>
+  </div>
+
+  <div class="filter-column">
+    <h3>Рейтинг</h3>
+    <label>Мин: <input type="number" step="0.1" id="min_rating" /></label>
+  </div>
+
+  <div class="filter-column">
+    <h3>Отзывы</h3>
+    <label>Мин: <input type="number" id="min_reviews_count" /></label>
+  </div>
+</div>
+
+<div class="filter-btn-container">
+  <button id="clearFilters">Очистить фильтры</button>
+  <button id="applyFilters">Применить фильтры</button>
+  <button id="purge-database">Полная очистка БД</button>
+</div>
+
+<table id="productTable">
+  <thead>
+    <tr>
+      <th data-sort="title">Название</th>
+      <th data-sort="price">Цена</th>
+      <th data-sort="discounted_price">Цена со скидкой</th>
+      <th data-sort="rating">Рейтинг</th>
+      <th data-sort="reviews_count">Отзывы</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<h3>Гистограмма цен</h3>
+<canvas id="priceHistogram" width="600" height="300"></canvas>
+
+<h3>Скидка vs Рейтинг</h3>
+<canvas id="discountRatingChart" width="600" height="300"></canvas>
+
+<script src="{% static 'js/script.js' %}"></script>
 </body>
 </html>
