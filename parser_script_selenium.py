@@ -17,7 +17,7 @@ from parser.models import Item
 
 # Переменные
 SEARCH_QUERY = "трусы"  # Поисковый запрос на сайте
-ITEMS_TO_PARSE = 2500  # Общее количество товаров, которые нужно распарсить
+ITEMS_TO_PARSE = 250  # Общее количество товаров, которые нужно распарсить
 
 # Константы
 CHROMEDRIVER_PATH = r'./chromedriver.exe'  # Необходимо указать путь
@@ -166,7 +166,7 @@ def parse_products() -> None:
             else:
                 break
 
-        print(f"Всего товаров собрано: {len(products_info)}")
+        print(f"Всего товаров для сохранения в БД: {len(products_info[:ITEMS_TO_PARSE])} (лимит: {ITEMS_TO_PARSE})")
 
         for idx, product in enumerate(products_info[:ITEMS_TO_PARSE], 1):
             item = Item(**product)
