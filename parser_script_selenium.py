@@ -7,12 +7,17 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
+from selenium.webdriver.remote.webdriver import WebDriver, WebElement
 
 # Настройка Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
 django.setup()
 
 from parser.models import Item
+
+# Переменные
+SEARCH_QUERY = "трусы"  # Поисковый запрос на сайте
+ITEMS_TO_PARSE = 2500  # Общее количество товаров, которые нужно распарсить
 
 # Константы
 CHROMEDRIVER_PATH = r'./chromedriver.exe'  # Необходимо указать путь
@@ -23,13 +28,24 @@ SCROLL_PAUSE = 3  # Задержка (в секундах) после каждо
 PAGE_LOAD_TIMEOUT = 5  # Время ожидания загрузки страницы после действий (например, после поиска)
 IMPLICIT_WAIT = 20  # Неявное ожидание элементов при поиске через Selenium
 
-# Переменные
-SEARCH_QUERY = "ноутбук"  # Поисковый запрос на сайте
-ITEMS_TO_PARSE = 1000  # Общее количество товаров, которые нужно распарсить
+
+def setup_driver() -> WebDriver:
+    """
+    Создаёт и возвращает объект Selenium WebDriver.
+    """
+    options = Options()
+    options.add_argument("--headless")
+    service = Service(CHROMEDRIVER_PATH)
+    # driver = webdriver.Chrome(service=service, options=options)
+    driver = webdriver.Chrome(service=service)
+    driver.implicitly_wait(IMPLICIT_WAIT)
+    return driver
 
 
-def scroll_and_load_all(driver, step=SCROLL_STEP):
-    """Плавная прокрутка страницы до конца"""
+def scroll_and_load_all(driver: WebDriver, step: int = SCROLL_STEP) -> None:
+    """
+    Прокручивает страницу вниз до конца, чтобы подгрузить все товары.
+    """
     last_height = driver.execute_script("return document.body.scrollHeight")
     print("Начинаем прокрутку")
 
@@ -44,92 +60,115 @@ def scroll_and_load_all(driver, step=SCROLL_STEP):
         print(f"Прокручено до: {new_height} пикселей")
 
 
-def setup_driver():
-    """Настройка и возврат экземпляра драйвера"""
-    options = Options()
-    options.add_argument("--headless")
-    service = Service(CHROMEDRIVER_PATH)
-    # driver = webdriver.Chrome(service=service, options=options)
-    driver = webdriver.Chrome(service=service)
-    driver.implicitly_wait(IMPLICIT_WAIT)
-    return driver
-
-
-def parse_number_from_text(text):
+def parse_number_from_text(text: str) -> int | float | None:
+    """
+    Извлекает число из строки. Возвращает int, float или None.
+    """
     if not isinstance(text, str):
         return 0
+
     text = text.replace(" ", "")
     match = re.search(r'(\d+)', text)
+
     if match:
         number_str = match.group(1).replace(',', '.')  # Заменяем запятую на точку
         number = float(number_str)  # Преобразуем в float
-        if number.is_integer():  # Проверяем, целое ли число
-            number = int(number)
-    else:
-        number = None
-    return number
+        return int(number) if number.is_integer() else number
+
+    return None
 
 
-def parse_products():
-    driver = setup_driver()
+def setup_and_search(driver: WebDriver) -> None:
+    """
+    Открывает сайт и выполняет поиск по ключевому слову.
+    """
+    driver.get(TARGET_URL)
+    time.sleep(PAGE_LOAD_TIMEOUT)
+
+    search_input = driver.find_element(By.ID, "searchInput")
+    search_input.clear()
+    search_input.send_keys(SEARCH_QUERY)
+    search_input.send_keys(Keys.RETURN)
+    time.sleep(PAGE_LOAD_TIMEOUT)
+
+
+def parse_product_card(item: WebElement) -> dict[str, object] | None:
+    """
+    Достаёт данные из карточки товара.
+    Возвращает словарь или None, если парсинг не удался.
+    """
     try:
-        driver.get(TARGET_URL)
-        time.sleep(PAGE_LOAD_TIMEOUT)
+        title = item.find_element(By.CSS_SELECTOR, "span.product-card__name").text
+        price = item.find_element(By.CSS_SELECTOR, "del").text
+        discounted_price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
+        rating = item.find_element(By.CSS_SELECTOR, "span.address-rate-mini").text
+        rating_count = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
+        currency = item.find_element(
+            By.XPATH,
+            "/html/body/div[1]/header/div/div[1]/div/div[2]/span/span[2]"
+        ).text
 
-        search_input = driver.find_element(By.ID, "searchInput")
-        search_input.clear()
-        search_input.send_keys(SEARCH_QUERY)
-        search_input.send_keys(Keys.RETURN)
-        time.sleep(PAGE_LOAD_TIMEOUT)
+        title = title[2:] if title.startswith('/ ') else title
 
-        products_info = []
+        return {
+            "title": title,
+            "price": parse_number_from_text(price),
+            "discounted_price": parse_number_from_text(discounted_price),
+            "rating": parse_number_from_text(rating),
+            "reviews_count": parse_number_from_text(rating_count) or 0,
+            "currency": currency,
+        }
 
-        for page in range(ITEMS_TO_PARSE // ITEMS_PER_PAGE):
+    except Exception as e:
+        print(f"Ошибка в карточке товара: {e}")
+        return None
+
+
+def go_to_next_page(driver: WebDriver) -> bool:
+    """
+    Переходит на следующую страницу. Возвращает True, если получилось.
+    """
+    try:
+        next_button = driver.find_element(By.XPATH, '//*[@id="catalog"]/div/div[5]/div/a[7]')
+        next_button.click()
+        print("Перешли на следующую страницу")
+        return True
+    except Exception as e:
+        print(f"Не удалось перейти на следующую страницу: {e}")
+        return False
+
+
+def parse_products() -> None:
+    """
+    Запускает парсинг товаров: ищет, собирает данные и сохраняет в БД.
+    """
+    driver = setup_driver()
+    products_info = []
+
+    try:
+        setup_and_search(driver)
+
+        while True:
             time.sleep(PAGE_LOAD_TIMEOUT)
             scroll_and_load_all(driver)
             items = driver.find_elements(By.CLASS_NAME, "j-card-item")
 
-            for idx, item in enumerate(items):
-                try:
-                    title = item.find_element(By.CSS_SELECTOR, "span.product-card__name").text
-                    price = item.find_element(By.CSS_SELECTOR, "del").text
-                    discounted_price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
-                    rating = item.find_element(By.CSS_SELECTOR, "span.address-rate-mini").text
-                    rating_count = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
-                    currency = item.find_element(By.XPATH,
-                                                 "/html/body/div[1]/header/div/div[1]/div/div[2]/span/span[2]").text
+            for item in items:
+                product_data = parse_product_card(item)
+                if product_data and product_data["title"] and product_data["price"]:
+                    products_info.append(product_data)
 
-                    title = title[2:] if title.startswith('/ ') else title
-                    price = parse_number_from_text(price)
-                    discounted_price = parse_number_from_text(discounted_price)
-                    rating = parse_number_from_text(rating)
-                    rating_count = parse_number_from_text(rating_count)
+            print(f"Товаров собрано: {len(products_info)}")
 
-                    if title and price:
-                        products_info.append({
-                            "title": title,
-                            "price": price,
-                            "discounted_price": discounted_price,
-                            "rating": rating,
-                            "reviews_count": rating_count if rating_count else 0,
-                            "currency": currency,
-                        })
-                except Exception as e:
-                    print(f"Ошибка в карточке #{idx}: {e}")
-                    continue
-
-            if page != (ITEMS_TO_PARSE // ITEMS_PER_PAGE) - 1:
-                try:
-                    next_button = driver.find_element(By.XPATH, '//*[@id="catalog"]/div/div[5]/div/a[7]')
-                    next_button.click()
-                    print("Перешли на следующую страницу")
-                except Exception as e:
-                    print(f"Ошибка при переходе на следующую страницу: {e}")
+            if len(products_info) <= ITEMS_TO_PARSE:
+                if not go_to_next_page(driver):
                     break
+            else:
+                break
 
         print(f"Всего товаров собрано: {len(products_info)}")
 
-        for idx, product in enumerate(products_info, 1):
+        for idx, product in enumerate(products_info[:ITEMS_TO_PARSE], 1):
             item = Item(**product)
             item.save()
             print(f"[{idx}] Сохранено: {item.title}")
