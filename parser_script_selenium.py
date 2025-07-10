@@ -3,11 +3,14 @@ import re
 import time
 import django
 from selenium import webdriver
+from selenium.common import NoSuchElementException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver, WebElement
+
+from parser.decorators import timeit
 
 # Настройка Django
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
@@ -16,8 +19,8 @@ django.setup()
 from parser.models import Item
 
 # Переменные
-search_query = "ноутбук"  # Поисковый запрос на сайте
-items_to_parse = 1000  # Общее количество товаров, которые нужно распарсить
+search_query = "молды"  # Поисковый запрос на сайте
+items_to_parse = 100  # Общее количество товаров, которые нужно распарсить
 
 # Константы
 CHROMEDRIVER_PATH = r'./chromedriver.exe'  # Необходимо указать путь
@@ -71,7 +74,7 @@ def scroll_page(driver: WebDriver, max_scrolls: int = 100) -> None:
         current_scroll = driver.execute_script("return window.pageYOffset + window.innerHeight")
 
         remaining = total_height - current_scroll
-        print(f"Шаг {i+1}: осталось до низа {remaining:.0f}px")
+        print(f"Шаг {i + 1}: осталось до низа {remaining:.0f}px")
 
         if remaining <= REMAINING_TO_BOTTOM:
             print("Достигнут заданный уровень близости к низу страницы.")
@@ -104,8 +107,13 @@ def parse_product_card(item: WebElement) -> dict[str, object] | None:
     """
     try:
         title = item.find_element(By.CSS_SELECTOR, "span.product-card__name").text
-        price = item.find_element(By.CSS_SELECTOR, "del").text
-        discounted_price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
+        price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
+
+        try:
+            discounted_price = item.find_element(By.CSS_SELECTOR, "del").text
+        except NoSuchElementException:
+            discounted_price = None
+
         rating = item.find_element(By.CSS_SELECTOR, "span.address-rate-mini").text
         rating_count = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
         currency = item.find_element(
@@ -147,6 +155,7 @@ def parse_number_from_text(text: str) -> int | float | None:
     return None
 
 
+@timeit
 def parse_products() -> None:
     """
     Запускает парсинг товаров: ищет, собирает данные и сохраняет в БД.
@@ -161,10 +170,11 @@ def parse_products() -> None:
             time.sleep(PAGE_LOAD_TIMEOUT)
             scroll_page(driver)
             # items = driver.find_elements(By.CLASS_NAME, "j-card-item")
-            # items = driver.find_elements(By.CSS_SELECTOR, "article.j-card-item")
-            items = driver.find_elements(By.CSS_SELECTOR, "div.product-card__wrapper")
+            items = driver.find_elements(By.CSS_SELECTOR, "article.j-card-item")
+            # items = driver.find_elements(By.CSS_SELECTOR, "div.product-card__wrapper")
 
             for item in items:
+                # print(item.get_attribute("outerHTML"))
                 product_data = parse_product_card(item)
                 if product_data and product_data["title"] and product_data["price"]:
                     products_info.append(product_data)
