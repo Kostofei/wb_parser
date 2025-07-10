@@ -20,7 +20,7 @@ from parser.models import Item
 
 # Переменные
 search_query = "молды"  # Поисковый запрос на сайте
-items_to_parse = 100  # Общее количество товаров, которые нужно распарсить
+items_to_parse = 1000  # Общее количество товаров, которые нужно распарсить
 
 # Константы
 CHROMEDRIVER_PATH = r'./chromedriver.exe'  # Необходимо указать путь
@@ -145,12 +145,13 @@ def parse_number_from_text(text: str) -> int | float | None:
         return 0
 
     text = text.replace(" ", "")
-    match = re.search(r'(\d+)', text)
+    match = re.search(r'(\d+[.,]?\d*)', text)
 
     if match:
         number_str = match.group(1).replace(',', '.')  # Заменяем запятую на точку
         number = float(number_str)  # Преобразуем в float
-        return int(number) if number.is_integer() else number
+        number = int(number) if number.is_integer() else number
+        return number
 
     return None
 
@@ -174,18 +175,17 @@ def parse_products() -> None:
             # items = driver.find_elements(By.CSS_SELECTOR, "div.product-card__wrapper")
 
             for item in items:
-                # print(item.get_attribute("outerHTML"))
                 product_data = parse_product_card(item)
                 if product_data and product_data["title"] and product_data["price"]:
                     products_info.append(product_data)
 
             print(f"Товаров собрано: {len(products_info)}")
 
-            if len(products_info) <= items_to_parse:
+            if len(products_info) >= items_to_parse:
+                break
+            else:
                 if not go_to_next_page(driver):
                     break
-            else:
-                break
 
         print(f"Всего товаров для сохранения в БД: {len(products_info[:items_to_parse])} (лимит: {items_to_parse})")
 
