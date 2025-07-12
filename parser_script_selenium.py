@@ -3,7 +3,6 @@ import re
 import time
 import django
 from selenium import webdriver
-from selenium.common import NoSuchElementException
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
@@ -20,15 +19,14 @@ from parser.models import Item
 
 # Переменные
 search_query = "молды"  # Поисковый запрос на сайте
-items_to_parse = 200  # Общее количество товаров, которые нужно распарсить
+items_to_parse = 1000  # Общее количество товаров, которые нужно распарсить
 
 # Константы
 CHROMEDRIVER_PATH = r'./chromedriver.exe'  # Необходимо указать путь
 TARGET_URL = "https://www.wildberries.by/"
-REMAINING_TO_BOTTOM = 1500  # Количество пикселей на шаг прокрутки страницы
-SCROLL_PAUSE = 3  # Задержка (в секундах) после каждой прокрутки, чтобы успели подгрузиться элементы
-PAGE_LOAD_TIMEOUT = 5  # Время ожидания загрузки страницы после действий (например, после поиска)
-IMPLICIT_WAIT = 10  # Неявное ожидание элементов при поиске через Selenium
+SCROLL_PAUSE = 0.5  # Задержка (в секундах) после каждой прокрутки, чтобы успели подгрузиться элементы
+PAGE_LOAD_TIMEOUT = 0.5  # Время ожидания загрузки страницы после действий (например, после поиска)
+IMPLICIT_WAIT = 2  # Неявное ожидание элементов при поиске через Selenium
 
 
 def setup_driver() -> WebDriver:
@@ -64,26 +62,39 @@ def setup_and_search(driver: WebDriver) -> None:
     time.sleep(PAGE_LOAD_TIMEOUT)
 
 
-def scroll_page(driver: WebDriver, max_scrolls: int = 100) -> None:
+def scroll_page(driver: WebDriver) -> None:
     """
-    Прокручивает страницу, пока не останется offset пикселей до конца.
+    Прокручивает страницу до тех пор, пока не будет получены все объекты на странице.
     """
-    print(f"Прокрутка до {REMAINING_TO_BOTTOM}px от нижнего края страницы...")
-    for i in range(max_scrolls):
-        total_height = driver.execute_script("return document.body.scrollHeight")
-        current_scroll = driver.execute_script("return window.pageYOffset + window.innerHeight")
+    count = 0
+    max_elements_page = 100
+    found_elements_page = 0
+    print(f"Прокрутка страницы для загрузки контента...")
 
-        remaining = total_height - current_scroll
-        print(f"Шаг {i + 1}: осталось до низа {remaining:.0f}px")
+    while count != max_elements_page:
+        # Получаем текущее количество элементов
+        elements = driver.find_elements(By.CSS_SELECTOR, "article.j-card-item")
+        current_count = len(elements)
 
-        if remaining <= REMAINING_TO_BOTTOM:
-            print("Достигнут заданный уровень близости к низу страницы.")
+        # Если количество объектов не изменилось, выходим из цикла
+        if found_elements_page == current_count:
+            print(f"На странице всего {current_count} объектов.")
             break
 
-        driver.execute_script("window.scrollBy(0, 1000);")
-        time.sleep(SCROLL_PAUSE)
-    else:
-        print("Превышен лимит прокруток.")
+        print(f"Шаг {count + 1}: найдено {current_count} объектов")
+
+        # Прокручиваем к последнему элементу
+        if elements:
+            driver.execute_script("arguments[0].scrollIntoView();", elements[-1])
+
+        if current_count >= 100:
+            print(f"Достигнуто необходимое количество объектов {max_elements_page}.")
+            break
+
+        time.sleep(0.5)
+
+        found_elements_page = current_count
+        count += 1
 
 
 def go_to_next_page(driver: WebDriver) -> bool:
@@ -102,33 +113,32 @@ def go_to_next_page(driver: WebDriver) -> bool:
 
 def parse_product_card(item: WebElement) -> dict[str, object] | None:
     """
-    Достаёт данные из карточки товара.
-    Возвращает словарь или None, если парсинг не удался.
+    Оптимизированная версия парсера карточки товара.
     """
     try:
-        title = item.find_element(By.CSS_SELECTOR, "span.product-card__name").text
-        price = item.find_element(By.CSS_SELECTOR, "ins.price__lower-price").text
+        # Получаем весь HTML элемента один раз
+        html = item.get_attribute('outerHTML')
 
-        try:
-            discounted_price = item.find_element(By.CSS_SELECTOR, "del").text
-        except NoSuchElementException:
-            discounted_price = None
+        title = re.search(r'<span class="product-card__name-separator.*?"> / </span>(.*?)</span>', html)
+        price = re.search(r'<ins class="price__lower-price.*?">.*?(\d+[.,]?\d*).*?</ins>', html)
+        discounted_price = re.search(r'<del>.*?(\d+[.,]?\d*).*?</del>', html)
+        rating = re.search(r'<span class="address-rate-mini address-rate-mini--sm">(.*?)</span>', html)
+        reviews_count = re.search(r'<span class="product-card__count">.*?(\d+).*?</span>', html)
 
-        rating = item.find_element(By.CSS_SELECTOR, "span.address-rate-mini").text
-        rating_count = item.find_element(By.CSS_SELECTOR, "span.product-card__count").text
-        currency = item.find_element(
-            By.XPATH,
-            "/html/body/div[1]/header/div/div[1]/div/div[2]/span/span[2]"
-        ).text
+        # если надо получаем валюту
+        # currency = item.find_element(
+        #         #     By.XPATH,
+        #         #     "/html/body/div[1]/header/div/div[1]/div/div[2]/span/span[2]"
+        #         # ).text
 
-        title = title[2:] if title.startswith('/ ') else title
+        currency = 'BYN'
 
         return {
-            "title": title,
-            "price": parse_number_from_text(price),
-            "discounted_price": parse_number_from_text(discounted_price),
-            "rating": parse_number_from_text(rating),
-            "reviews_count": parse_number_from_text(rating_count) or 0,
+            "title": title.group(1),
+            "price": parse_number_from_text(price.group(1)),
+            "discounted_price": parse_number_from_text(discounted_price.group(1)) if discounted_price else None,
+            "rating": parse_number_from_text(rating.group(1)) if rating else None,
+            "reviews_count": parse_number_from_text(reviews_count.group(1)) if reviews_count else 0,
             "currency": currency,
         }
 
@@ -170,9 +180,7 @@ def parse_products() -> None:
         while True:
             time.sleep(PAGE_LOAD_TIMEOUT)
             scroll_page(driver)
-            # items = driver.find_elements(By.CLASS_NAME, "j-card-item")
             items = driver.find_elements(By.CSS_SELECTOR, "article.j-card-item")
-            # items = driver.find_elements(By.CSS_SELECTOR, "div.product-card__wrapper")
 
             for item in items:
                 product_data = parse_product_card(item)
@@ -181,7 +189,7 @@ def parse_products() -> None:
 
             print(f"Товаров собрано: {len(products_info)}")
 
-            if len(products_info) >= items_to_parse:
+            if len(products_info) >= items_to_parse or len(items) < 100:
                 break
             else:
                 if not go_to_next_page(driver):
@@ -189,10 +197,9 @@ def parse_products() -> None:
 
         print(f"Всего товаров для сохранения в БД: {len(products_info[:items_to_parse])} (лимит: {items_to_parse})")
 
-        for idx, product in enumerate(products_info[:items_to_parse], 1):
-            item = Item(**product)
-            item.save()
-            # print(f"[{idx}] Сохранено: {item.title}")
+        # Создаем список объектов Item и сохраняем их в БД за одну транзакцию
+        items_to_create = [Item(**product) for product in products_info[:items_to_parse]]
+        Item.objects.bulk_create(items_to_create)
 
     finally:
         driver.quit()
