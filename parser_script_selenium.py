@@ -34,16 +34,37 @@ def setup_driver() -> WebDriver:
     Создаёт и возвращает объект Selenium WebDriver.
     """
     options = Options()
-    options.add_argument("--headless")
+
+    # headless-режим
+    options.add_argument("--headless=new")
+
+    # Отключаем признак, что это автоматизация (navigator.webdriver = false)
+    options.add_argument("--disable-blink-features=AutomationControlled")
+
+    # Устанавливаем размер окна браузера — важно, потому что по умолчанию в headless режиме окно маленькое
     options.add_argument("--window-size=1920,1080")
-    options.add_argument("--disable-features=TranslateUI")
-    options.add_argument("--disable-background-networking")
-    options.add_argument("--disable-default-apps")
-    options.add_argument("--mute-audio")
-    options.add_argument("--disable-notifications")
+
+    # Стартуем браузер сразу в полноэкранном режиме (может влиять на рендеринг некоторых элементов)
+    options.add_argument("--start-maximized")
+
+    # Отключаем использование GPU (не нужно в headless-режиме и иногда вызывает баги в Linux)
+    options.add_argument("--disable-gpu")
+
+    # Отключаем sandbox (изолированное окружение), нужно в некоторых окружениях без root-доступа (например, Docker)
+    options.add_argument("--no-sandbox")
+
+    # Отключаем shared memory, чтобы избежать ошибок в ограниченных системах (например, low-RAM или Docker)
+    options.add_argument("--disable-dev-shm-usage")
+
+    # Устанавливаем реальный user-agent, как у обычного Chrome-пользователя на Windows
+    # Это позволяет избежать банов и специальных версток для ботов
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                         "AppleWebKit/537.36 (KHTML, like Gecko) "
+                         "Chrome/115.0.0.0 Safari/537.36")
+
     service = Service(CHROMEDRIVER_PATH)
-    # driver = webdriver.Chrome(service=service, options=options)  # отключаем визуал
-    driver = webdriver.Chrome(service=service)
+    driver = webdriver.Chrome(service=service, options=options)  # отключаем визуал
+    # driver = webdriver.Chrome(service=service)
     driver.implicitly_wait(IMPLICIT_WAIT)
     return driver
 
