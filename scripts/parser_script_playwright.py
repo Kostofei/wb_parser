@@ -150,7 +150,6 @@ def parse_products():
 
 
 async def _parse_products():
-    from playwright.async_api import async_playwright
 
     products_info = []
 
