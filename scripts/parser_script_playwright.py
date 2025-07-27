@@ -17,16 +17,15 @@ from parser.decorators import timeit
 # Константы
 TARGET_URL = "https://www.wildberries.by/"
 search_query = "молды"
-items_to_parse = 1000
+items_to_parse = 6500
 
-REMAINING_TO_BOTTOM = 1500
 SCROLL_PAUSE = 0.5
 PAGE_LOAD_TIMEOUT = 0.5
 MAX_ELEMENTS = 100
 
 async def setup_and_search(page: Page) -> None:
-    await page.goto(TARGET_URL, timeout=30000)
-    await page.screenshot(path="screenshot.png", full_page=True)
+    await page.goto(TARGET_URL, timeout=5000)
+    # await page.screenshot(path="screenshot.png", full_page=True)
     await page.wait_for_timeout(PAGE_LOAD_TIMEOUT * 1000)
 
     search_input = await page.wait_for_selector("input[type='search']")

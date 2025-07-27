@@ -19,10 +19,10 @@ from parser.models import Item
 
 # Переменные
 search_query = "молды"  # Поисковый запрос на сайте
-items_to_parse = 1000  # Общее количество товаров, которые нужно распарсить
+items_to_parse = 10000  # Общее количество товаров, которые нужно распарсить
 
 # Константы
-CHROMEDRIVER_PATH = r'./chromedriver.exe'  # Необходимо указать путь
+CHROMEDRIVER_PATH = r'../chromedriver.exe'  # Необходимо указать путь
 TARGET_URL = "https://www.wildberries.by/"
 SCROLL_PAUSE = 0.5  # Задержка (в секундах) после каждой прокрутки, чтобы успели подгрузиться элементы
 PAGE_LOAD_TIMEOUT = 0.5  # Время ожидания загрузки страницы после действий (например, после поиска)
