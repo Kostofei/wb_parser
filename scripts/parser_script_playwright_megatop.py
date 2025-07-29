@@ -1,9 +1,3 @@
-import os
-import re
-import time
-import asyncio
-import copy
-
 from playwright.async_api import async_playwright, Page, Locator
 from playwright.sync_api import (sync_playwright, TimeoutError as PlaywrightTimeoutError,
                                  Page, Playwright, Browser, BrowserContext,
@@ -14,13 +8,14 @@ from parser.decorators import timeit
 
 # Константы
 TARGET_URL = "https://www.wildberries.by"
-EXCLUDED_CATEGORIES = ['бренды', 'wibes', 'экспресс', 'акции', 'грузовая доставка', 'обувь', 'детям']
+EXCLUDED_CATEGORIES = ['бренды', 'wibes', 'экспресс', 'акции', 'грузовая доставка', 'обувь']
 
 
 @timeit
 def run_wb_parser():
     result = parse_all_categories()
-    print_categories(result)
+    print(result)
+    # print_categories(result)
 
 
 def print_categories(categories, level=0):
@@ -31,15 +26,13 @@ def print_categories(categories, level=0):
         # Отступ в зависимости от уровня вложенности
         indent = "  " * level
         # Печатаем информацию о категории
-        print(f"{indent}\n{cat['name']} ({len(cat['subcategories'])} подкатегорий):")
+        # print(f"{indent}\n{cat['name']} ({len(cat['subcategories'])} подкатегорий): level{level}")
+        print(f"{indent}\n{cat}: level{level}")
 
         # Если есть подкатегории, рекурсивно обрабатываем их
-        if cat['subcategories']:
-            print_categories(cat['subcategories'], level + 4)
-        else:
-            # Печатаем информацию о подкатегории, если это конечный уровень
-            sub_indent = "  " * (level + 1)
-            print(f"{sub_indent}- Нет подкатегорий")
+
+        if cat.get('subcategories', None):
+            print_categories(cat['subcategories'], level + 2)
 
 
 def create_browser_session(p: Playwright) -> tuple[Browser, BrowserContext]:
@@ -81,7 +74,7 @@ def route_handler(route, request):
 def load_main_categories(context: BrowserContext) -> list:
     # Открытие новой вкладки
     page = context.new_page()
-    # page.route("**/*", route_handler)
+    page.route("**/*", route_handler)
 
     # Увеличиваем таймаут навигации и отключаем ожидание полной загрузки
     page.goto(
@@ -135,9 +128,9 @@ def load_main_categories(context: BrowserContext) -> list:
 
 
 @timeit
-def load_sub_items(category: list[dict], context: BrowserContext) -> list:
-    for num, item in enumerate(category[:2], 0):
-        print(item['name'])
+def load_subcategories(category: list[dict], context: BrowserContext, level: int = 1) -> list:
+    for num, item in enumerate(category[:], 0):
+        print(f'{level*"-"} {item["name"]}')
         result = []
         page = context.new_page()
         try:
@@ -149,15 +142,20 @@ def load_sub_items(category: list[dict], context: BrowserContext) -> list:
                 wait_until="domcontentloaded"  # Ждем только загрузки DOM, а не всех ресурсов
             )
             try:
-                # Ждем появления меню с категориями
-                page.wait_for_selector(
-                    'ul.menu-category__list',
-                    state="visible",
-                    timeout=3000
-                )
-
-                # Получаем все элементы меню (включая заголовки)
-                menu_items = page.query_selector_all('li.menu-category__item')
+                try:
+                    # Ждем появления меню с категориями subcategory-item
+                    page.wait_for_selector(selector='ul.menu-menu-category__subcategory-item',
+                                           state="visible",
+                                           timeout=1500)
+                    # Получаем все элементы меню (включая заголовки)
+                    menu_items = page.query_selector_all('li.menu-category__item:not(.menu-category__item--back)')
+                except:
+                    # Ждем появления меню с категориями category__list
+                    page.wait_for_selector(selector='ul.menu-category__list',
+                                           state="visible",
+                                           timeout=1500)
+                    # Получаем все элементы меню (включая заголовки)
+                    menu_items = page.query_selector_all('li.menu-category__item:not(.menu-category__item--back)')
 
                 for menu_item in menu_items:
                     # Пропускаем заголовки (элементы с тегом <p>)
@@ -171,42 +169,56 @@ def load_sub_items(category: list[dict], context: BrowserContext) -> list:
                             'name': link.inner_text().strip(),
                             'url': link.get_attribute('href'),
                             'parent': item['name'],
-                            'subcategories': []
                         })
 
-                category[num]['subcategories'] = load_sub_items(result, context)
+                category[num]['subcategories'] = load_subcategories(result, context, level + 1)
             except:
+                page.wait_for_timeout(1500)
                 # Получаем все элементы "Категория"
-                page.locator("div.dropdown-filter:has-text('Категория')").nth(1).hover()
+                show_all_filter = page.locator("div.dropdown-filter:has-text('Категория')")
+                page.wait_for_timeout(1500)
+                if show_all_filter.count() >= 2:
+                    show_all_filter.nth(1).hover()
 
-                show_all_buttons = page.locator("button.filter__show-all:has-text('Показать все')")
-                page.wait_for_timeout(500)
-                # parent_classes = show_all_buttons.evaluate("e => e.closest('.measurementContainer--GRwov') === null")
-                if show_all_buttons.count() >= 2:
-                    show_all_buttons.nth(1).click()
+                    show_all_buttons = page.locator("button.filter__show-all:has-text('Показать все')")
+                    page.wait_for_timeout(1500)
+                    if show_all_buttons.count() >= 2:
+                        show_all_buttons.nth(1).click()
 
-                count_items = 0
-                while True:
-                    page.wait_for_timeout(500)
-                    all_items = page.query_selector_all('li.filter__item')
-                    all_items[-1].hover()
-                    if count_items == len(all_items):
-                        break
-                    count_items = len(all_items)
+                    count_items = 0
+                    while True:
+                        page.wait_for_timeout(1500)
+                        all_items = page.query_selector_all('li.filter__item')
+                        all_items[-1].hover()
+                        if count_items == len(all_items):
+                            break
+                        count_items = len(all_items)
 
-                for i in all_items:
-                    # Извлекаем ссылки
-                    link = i.query_selector('span.checkbox-with-text__text')
-                    parent_classes = i.evaluate("e => e.closest('.measurementContainer--GRwov') === null")
-                    if link and parent_classes:
-                        result.append({
-                            'name': link.inner_text().strip(),
-                            'url': None,
-                            'subcategories': []
-                        })
+                    for i in all_items:
+                        # Извлекаем ссылки
+                        link = i.query_selector('span.checkbox-with-text__text')
+                        parent_classes = i.evaluate("e => e.closest('.measurementContainer--GRwov') === null")
+                        if link and parent_classes:
+                            result.append(link.inner_text().strip())
+                    print(f'{level * "-" + "--"} {result}')
+                    category[num]['Категория'] = result
+                else:
+                    page.wait_for_timeout(1500)
+                    page.wait_for_selector(f"button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name")
+                    all_items = page.query_selector_all('li.filter-category__item')
+                    page.wait_for_timeout(1500)
+                    for i in all_items:
+                        # Извлекаем ссылки
+                        link = i.query_selector('a.filter-category__link')
+                        page.wait_for_timeout(1500)
+                        if link:
+                            result.append({
+                                'name': link.inner_text().strip(),
+                                'url': link.get_attribute('href'),
+                                'parent': item['name'],
+                            })
 
-                category[num]['subcategories'] = result
-
+                    category[num]['subcategories'] = load_subcategories(result, context, level + 1)
 
         except Exception as e:
             print(f"Error processing {item['name']}: {str(e)}")
@@ -214,35 +226,6 @@ def load_sub_items(category: list[dict], context: BrowserContext) -> list:
             page.close()
 
     return category
-
-    # # Наводим курсор на категорию, чтобы открылись подкатегории
-    # category.hover()
-    # time.sleep(2)  # Ждем появления подкатегорий
-
-    # subcategories = []
-    # # Получаем подкатегории
-    # sub_items = page.query_selector_all(
-    #     'div.menu-burger__first > ul.menu-burger__set > li.menu-burger__item')
-    #
-    # for items in sub_items:
-    #     # Проверяем, является ли элемент ссылкой или заголовком
-    #     link = items.query_selector('a.menu-burger__link')
-    #     if link:
-    #         subcategory_name = link.inner_text().strip()
-    #         subcategory_url = link.get_attribute('href')
-    #         subcategories.append({'name': subcategory_name,
-    #                               'url': subcategory_url,
-    #                               'type': 'link'
-    #                               })
-    #     else:
-    #         title = items.query_selector('span.menu-burger__link')
-    #         if title:
-    #             subcategories.append({
-    #                 'name': title.inner_text().strip(),
-    #                 'url': None,
-    #                 'type': 'title'
-    #             })
-    # return subcategories
 
 
 def parse_all_categories() -> list | None:
@@ -253,7 +236,7 @@ def parse_all_categories() -> list | None:
             print('Получаю категории')
             main_categories = load_main_categories(context)
             print('Получаю подкатегории')
-            result = load_sub_items(main_categories, context)
+            result = load_subcategories(main_categories, context)
 
             return result
 
