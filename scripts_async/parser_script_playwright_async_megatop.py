@@ -50,8 +50,8 @@ async def create_browser_session(p: Playwright) -> tuple[Browser, BrowserContext
     """
     # Запускаем браузер с дополнительными параметрами
     browser = await p.chromium.launch(
-        # headless=True,
-        headless=False,
+        headless=True,
+        # headless=False,
         timeout=60000,  # Увеличиваем таймаут запуска браузера
         slow_mo=0  # Добавляем задержку между действиями (мс)
     )
@@ -78,12 +78,13 @@ async def route_handler(route, request):
         await route.continue_()  # В случае ошибки лучше пропустить запрос
 
 
-@timeit
+
 async def load_main_categories(context: BrowserContext) -> list:
     """Загружает список основных категорий с сайта"""
     # Открытие новой вкладки
     page = await context.new_page()
     try:
+        # Настройка страницы
         await page.route("**/*", route_handler)
 
         # Увеличиваем таймаут навигации и отключаем ожидание полной загрузки
@@ -141,7 +142,6 @@ async def load_main_categories(context: BrowserContext) -> list:
         await page.close()
 
 
-@timeit
 async def load_subcategories(
         category: dict,
         context: BrowserContext,
@@ -150,11 +150,11 @@ async def load_subcategories(
 ) -> dict:
     """Загружает подкатегории для указанной категории"""
     async with sem:
-        print(f'{level * "-"} {category["name"]}')
+        print(f'{level * "-"} {category["name"]} - [Родитель: {category.get("parent") if category.get("parent") else "Нет!"}]')
         page = await context.new_page()
         try:
             # Настройка страницы
-            # await page.route("**/*", route_handler)  # Раскомментировать при необходимости
+            # await page.route("**/*", route_handler)
 
             # Навигация
             await page.goto(
@@ -168,7 +168,7 @@ async def load_subcategories(
 
             if result:
                 print('Получаю подкатегории')
-                sub_sem = asyncio.Semaphore(5)
+                sub_sem = asyncio.Semaphore(2)
                 tasks = [load_subcategories(subcat, context, sub_sem, level + 1) for subcat in result]
                 category['subcategories'] = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -375,12 +375,10 @@ async def _extract_alternative_structure(page, category: dict, level: int) -> li
                 parent_container = await item.evaluate("el => el.closest('.measurementContainer--GRwov') === null")
 
                 if link and parent_container:
-                    result.append({
-                        'name': (await link.inner_text()).strip(),
-                        'parent': category['name'],
-                        'level': level
-                    })
-            print(f'{level * "-" + "--"} {result}')
+                    result.append((await link.inner_text()).strip())
+
+            result.append({'parent': category['name'], 'level': level})
+            print(f'{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}')
             category['Категория'] = result
             return None
 
@@ -424,7 +422,7 @@ async def parse_all_categories() -> list | None:
 
             print('Получаю подкатегории')
             sem = asyncio.Semaphore(5)  # Максимум X задач одновременно
-            tasks = [load_subcategories(category, context, sem) for category in list_main_categories[:3]]
+            tasks = [load_subcategories(category, context, sem) for category in list_main_categories[12:14]]
             results = await asyncio.gather(*tasks)
 
             # Фильтруем результаты, удаляя исключения
