@@ -128,7 +128,6 @@ async def load_main_categories(context: BrowserContext) -> list:
                     'name': name,
                     'url': await category_link.get_attribute('href'),
                     'data_menu_id': await category.get_attribute('data-menu-id'),
-                    'subcategories': []
                 })
             except Exception as e:
                 print(f"Ошибка при обработке категории: {e}")
@@ -143,109 +142,124 @@ async def load_main_categories(context: BrowserContext) -> list:
 
 
 @timeit
-async def load_subcategories(category: list[dict],
-                       context: BrowserContext,
-                       sem: asyncio.Semaphore,
-                       level: int = 1) -> list:
-    """ """
+async def load_subcategories(
+        category: dict,
+        context: BrowserContext,
+        sem: asyncio.Semaphore,
+        level: int = 1
+) -> list:
+    """Загружает подкатегории для указанной категории"""
     async with sem:
-        for num, item in enumerate(category[:], 0):
-            print(f'{level*"-"} {item["name"]}')
-            result = []
-            page = context.new_page()
+        print(f'{level*"-"} {category["name"]}')
+        result = []
+        page = await context.new_page()
+        try:
+            # Настройка страницы
+            # page.route("**/*", route_handler)
+
+            await page.goto(
+                f"{TARGET_URL}{category['url']}",
+                timeout=120000,  # 2 минуты на загрузку
+                wait_until="domcontentloaded"  # Ждем только загрузки DOM, а не всех ресурсов
+            )
+
+            # Основная логика сбора данных
+            result = await _extract_subcategories(page, category, level)
+
             try:
-                # page.route("**/*", route_handler)
-
-                page.goto(
-                    f"{TARGET_URL}{item['url']}",
-                    timeout=120000,  # 2 минуты на загрузку
-                    wait_until="domcontentloaded"  # Ждем только загрузки DOM, а не всех ресурсов
-                )
                 try:
-                    try:
-                        # Ждем появления меню с категориями subcategory-item
-                        page.wait_for_selector(selector='ul.menu-menu-category__subcategory-item',
-                                               state="visible",
-                                               timeout=1500)
-                        # Получаем все элементы меню (включая заголовки)
-                        menu_items = page.query_selector_all('li.menu-category__item:not(.menu-category__item--back)')
-                    except:
-                        # Ждем появления меню с категориями category__list
-                        page.wait_for_selector(selector='ul.menu-category__list',
-                                               state="visible",
-                                               timeout=1500)
-                        # Получаем все элементы меню (включая заголовки)
-                        menu_items = page.query_selector_all('li.menu-category__item:not(.menu-category__item--back)')
-
-                    for menu_item in menu_items:
-                        # Пропускаем заголовки (элементы с тегом <p>)
-                        if menu_item.query_selector('p.menu-category__title'):
-                            continue
-
-                        # Извлекаем ссылки
-                        link = menu_item.query_selector('a.menu-category__link')
-                        if link:
-                            result.append({
-                                'name': link.inner_text().strip(),
-                                'url': link.get_attribute('href'),
-                                'parent': item['name'],
-                            })
-
-                    category[num]['subcategories'] = load_subcategories(result, context, level + 1)
+                    # Ждем появления меню с категориями subcategory-item
+                    await page.wait_for_selector(selector='ul.menu-menu-category__subcategory-item',
+                                           state="visible",
+                                           timeout=1500)
+                    # Получаем все элементы меню (включая заголовки)
+                    menu_items = await page.query_selector_all('li.menu-category__item:not(.menu-category__item--back)')
                 except:
-                    page.wait_for_timeout(1500)
-                    # Получаем все элементы "Категория"
-                    show_all_filter = page.locator("div.dropdown-filter:has-text('Категория')")
-                    page.wait_for_timeout(1500)
-                    if show_all_filter.count() >= 2:
-                        show_all_filter.nth(1).hover()
+                    # Ждем появления меню с категориями category__list
+                    await page.wait_for_selector(selector='ul.menu-category__list',
+                                           state="visible",
+                                           timeout=1500)
+                    # Получаем все элементы меню (включая заголовки)
+                    menu_items = await page.query_selector_all('li.menu-category__item:not(.menu-category__item--back)')
 
-                        show_all_buttons = page.locator("button.filter__show-all:has-text('Показать все')")
-                        page.wait_for_timeout(1500)
-                        if show_all_buttons.count() >= 2:
-                            show_all_buttons.nth(1).click()
+                for menu_item in menu_items:
+                    # Пропускаем заголовки (элементы с тегом <p>)
+                    if await menu_item.query_selector('p.menu-category__title'):
+                        continue
 
-                        count_items = 0
-                        while True:
-                            page.wait_for_timeout(1500)
-                            all_items = page.query_selector_all('li.filter__item')
-                            all_items[-1].hover()
-                            if count_items == len(all_items):
-                                break
-                            count_items = len(all_items)
+                    # Извлекаем ссылки
+                    link = await menu_item.query_selector('a.menu-category__link')
+                    if link:
+                        result.append({
+                            'name': (await link.inner_text()).strip(),
+                            'url': await link.get_attribute('href'),
+                            'parent': category['name'],
+                        })
+                print('Получаю под подкатегории')
+                sem = asyncio.Semaphore(5)  # Максимум X задач одновременно
+                tasks = [load_subcategories(category, context, sem, level + 1) for category in result]
+                category['subcategories'] = await asyncio.gather(*tasks)
+            except:
 
-                        for i in all_items:
-                            # Извлекаем ссылки
-                            link = i.query_selector('span.checkbox-with-text__text')
-                            parent_classes = i.evaluate("e => e.closest('.measurementContainer--GRwov') === null")
-                            if link and parent_classes:
-                                result.append(link.inner_text().strip())
-                        print(f'{level * "-" + "--"} {result}')
-                        category[num]['Категория'] = result
-                    else:
-                        page.wait_for_timeout(1500)
-                        page.wait_for_selector(f"button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name")
-                        all_items = page.query_selector_all('li.filter-category__item')
-                        page.wait_for_timeout(1500)
-                        for i in all_items:
-                            # Извлекаем ссылки
-                            link = i.query_selector('a.filter-category__link')
-                            page.wait_for_timeout(1500)
-                            if link:
-                                result.append({
-                                    'name': link.inner_text().strip(),
-                                    'url': link.get_attribute('href'),
-                                    'parent': item['name'],
-                                })
 
-                        category[num]['subcategories'] = load_subcategories(result, context, level + 1)
-
-            except Exception as e:
-                print(f"Error processing {item['name']}: {str(e)}")
-            finally:
-                page.close()
+        except Exception as e:
+            print(f"Error processing {category['name']}: {str(e)}")
+        finally:
+            await page.close()
 
     return category
+
+
+async def _extract_subcategories(page, category: dict, level: int) -> list:
+    """Вспомогательная функция для извлечения подкатегорий"""
+    result = []
+
+    try:
+        # Попытка первого варианта структуры страницы
+        try:
+            await page.wait_for_selector(
+                'ul.menu-menu-category__subcategory-item',
+                state="visible",
+                timeout=1500
+            )
+            menu_items = await page.query_selector_all(
+                'li.menu-category__item:not(.menu-category__item--back)'
+            )
+        except:
+            # Попытка второго варианта структуры страницы
+            await page.wait_for_selector(
+                'ul.menu-category__list',
+                state="visible",
+                timeout=1500
+            )
+            menu_items = await page.query_selector_all(
+                'li.menu-category__item:not(.menu-category__item--back)'
+            )
+
+        # Обработка найденных элементов
+        for item in menu_items:
+            if await item.query_selector('p.menu-category__title'):
+                continue
+
+            link = await item.query_selector('a.menu-category__link')
+            if link:
+                result.append({
+                    'name': (await link.inner_text()).strip(),
+                    'url': await link.get_attribute('href'),
+                    'parent': category['name'],
+                })
+        return result
+
+    except:
+        # Альтернативная логика для других структур страниц
+        return await _extract_alternative_structure(page, category, level)
+
+
+async def _extract_alternative_structure(page, category: dict, level: int) -> list:
+    """Обработка альтернативных структур страниц"""
+    result = []
+    # ... (ваша логика для других вариантов структуры страницы)
+    return result
 
 
 async def parse_all_categories() -> list | None:
@@ -258,16 +272,14 @@ async def parse_all_categories() -> list | None:
             if not list_main_categories:
                 raise EmptyCategoriesError("Не удалось загрузить категории (пустой список)")
 
-            return list_main_categories
+            print('Получаю подкатегории')
+            sem = asyncio.Semaphore(5)  # Максимум X задач одновременно
+            tasks = [load_subcategories(category, context, sem) for category in list_main_categories]
+            results = await asyncio.gather(*tasks)
 
-            # print('Получаю подкатегории')
-            # sem = asyncio.Semaphore(10)  # Максимум X задач одновременно
-            # tasks = [load_subcategories(category, context, sem) for category in list_main_categories]
-            # results = await asyncio.gather(*tasks)
-            #
-            # # Фильтруем результаты, удаляя исключения
-            # valid_results = [r for r in results if not isinstance(r, Exception)]
-            # return valid_results
+            # Фильтруем результаты, удаляя исключения
+            valid_results = [r for r in results if not isinstance(r, Exception)]
+            return valid_results
 
         except EmptyCategoriesError as e:
             print(f"Ошибка: {e}")  # Логируем кастомную ошибку
