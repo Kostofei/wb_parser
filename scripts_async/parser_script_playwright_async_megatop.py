@@ -200,7 +200,58 @@ async def load_subcategories(
                 tasks = [load_subcategories(category, context, sem, level + 1) for category in result]
                 category['subcategories'] = await asyncio.gather(*tasks)
             except:
+                await page.wait_for_timeout(1500)
+                # Получаем все элементы "Категория"
+                show_all_filter = page.locator("div.dropdown-filter:has-text('Категория')")
+                await page.wait_for_timeout(1500)
+                if await show_all_filter.count() >= 2:
+                    await show_all_filter.nth(1).hover()
 
+                    show_all_buttons = page.locator("button.filter__show-all:has-text('Показать все')")
+                    await page.wait_for_timeout(1500)
+                    if await show_all_buttons.count() >= 2:
+                        await show_all_buttons.nth(1).click()
+
+                    count_items = 0
+                    while True:
+                        await page.wait_for_timeout(1500)
+                        all_items = await page.query_selector_all('li.filter__item')
+                        await all_items[-1].hover()
+                        if count_items == len(all_items):
+                            break
+                        count_items = len(all_items)
+
+                    for i in all_items:
+                        # Извлекаем ссылки
+                        link = await i.query_selector('span.checkbox-with-text__text')
+                        parent_classes = await i.evaluate("e => e.closest('.measurementContainer--GRwov') === null")
+                        if link and parent_classes:
+                            result.append({
+                                'latest_categories': (await link.inner_text()).strip(),
+                                'investment': level,
+                            })
+                    print(f'{level * "-" + "--"} {result}')
+                    category['Категория'] = result
+                else:
+                    await page.wait_for_timeout(1500)
+                    await page.wait_for_selector(f"button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name")
+                    all_items = await page.query_selector_all('li.filter-category__item')
+                    await page.wait_for_timeout(1500)
+                    for i in all_items:
+                        # Извлекаем ссылки
+                        link = await i.query_selector('a.filter-category__link')
+                        await page.wait_for_timeout(1500)
+                        if link:
+                            result.append({
+                                'name': (await link.inner_text()).strip(),
+                                'url': await link.get_attribute('href'),
+                                'parent': category['name'],
+                            })
+
+                    print('Получаю под подкатегории')
+                    sem = asyncio.Semaphore(5)  # Максимум X задач одновременно
+                    tasks = [load_subcategories(category, context, sem, level + 1) for category in result]
+                    category['subcategories'] = await asyncio.gather(*tasks)
 
         except Exception as e:
             print(f"Error processing {category['name']}: {str(e)}")
