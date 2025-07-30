@@ -73,7 +73,7 @@ def route_handler(route, request):
     """Блокировка "лишних" ресурсов (ускорение загрузки)"""
     try:
         # blocked_types = ["image", "font", "stylesheet", "media", "other"]
-        blocked_types = ["image", "font", "media"]
+        blocked_types = ["image", "media", "other"]
         if request.resource_type in blocked_types:
             route.abort()
         else:
@@ -87,7 +87,7 @@ def route_handler(route, request):
 def load_main_categories(context: BrowserContext) -> list:
     # Открытие новой вкладки
     page = context.new_page()
-    # page.route("**/*", route_handler)
+    page.route("**/*", route_handler)
 
     # Увеличиваем таймаут навигации и отключаем ожидание полной загрузки
     page.goto(
@@ -149,7 +149,7 @@ def load_subcategories(
     result = []
     page = context.new_page()
     try:
-        # page.route("**/*", route_handler)
+        page.route("**/*", route_handler)
 
         page.goto(
             f"{TARGET_URL}{category['url']}",
@@ -196,7 +196,7 @@ def load_subcategories(
                             'url': link.get_attribute('href'),
                             'parent': category['name'],
                         })
-            print(f"{Fore.RED} {[i['name'] for i in result]} {Style.RESET_ALL}")
+            print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
             category['subcategories'] = []
             for item in result:
                 print(f'идем по списку {item["name"]} - {level}')
@@ -205,40 +205,55 @@ def load_subcategories(
         except:
             page.wait_for_timeout(TIME_WAIT)
             # Получаем все элементы "Категория"
-            show_all_filter = page.locator("div.dropdown-filter:has-text('Категория')")
-            if show_all_filter.count() >= 2:
-                show_all_filter.nth(1).hover()
+            category_filter = page.locator("div.dropdown-filter:has-text('Категория')")
+            if category_filter.count() >= 2:
+                for item in category_filter.all():
+                    parent_container = item.evaluate("e => e.closest('.measurementContainer--GRwov') === null")
+                    if parent_container:
+                        item.hover()
+                        break
 
-                show_all_buttons = page.locator("button.filter__show-all:has-text('Показать все')")
-                if show_all_buttons.count() >= 2:
-                    show_all_buttons.nth(1).click()
+                page.wait_for_timeout(TIME_WAIT)
+                show_all_button = page.locator("button.filter__show-all:has-text('Показать все')")
+                if show_all_button.count() >= 2:
+                    for item in show_all_button.all():
+                        parent_container = item.evaluate("e => e.closest('.measurementContainer--GRwov') === null")
+                        if parent_container:
+                            item.click()
+                            break
 
-                count_items = 0
+                all_items = page.query_selector_all('li.filter__item')
+                count_items = len(all_items)
                 while True:
-                    page.wait_for_timeout(TIME_WAIT)
-                    all_items = page.query_selector_all('li.filter__item')
+                    if len(all_items) == 0:
+                        page.wait_for_timeout(500)
+                        all_items = page.query_selector_all('li.filter__item')
+                        continue
                     all_items[-1].hover()
+                    all_items = page.query_selector_all('li.filter__item')
                     if count_items == len(all_items):
                         break
                     count_items = len(all_items)
 
-                for i in all_items:
-                    # Извлекаем ссылки
-                    link = i.query_selector('span.checkbox-with-text__text')
-                    parent_classes = i.evaluate("e => e.closest('.measurementContainer--GRwov') === null")
-                    if link and parent_classes:
-                        result.append(link.inner_text().strip())
+                result = []
+                for item in all_items:
+                    # Проверяем, что элемент не в measurementContainer
+                    parent_container = item.evaluate("e => e.closest('.measurementContainer--GRwov') === null")
+                    if parent_container:
+                        link = item.query_selector('span.checkbox-with-text__text')
+                        if link:
+                            result.append(link.inner_text().strip())
 
-                print(f'{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}')
+                print(f'{Fore.YELLOW}{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
                 category['Категория'] = result
             else:
+                page.wait_for_timeout(TIME_WAIT)
                 page.wait_for_selector('button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name').hover()
                 page.wait_for_timeout(TIME_WAIT)
                 all_items = page.query_selector_all('ul.filter-category__list > li.filter-category__item')
                 for item in all_items:
                     # Извлекаем ссылки
                     link = item.query_selector('a.filter-category__link')
-                    page.wait_for_timeout(TIME_WAIT)
                     if link:
                         result.append({
                             'name': link.inner_text().strip(),
@@ -247,17 +262,17 @@ def load_subcategories(
                         })
 
                 if category['name'] not in [item['name'] for item in result]:
-                    print(f"{Fore.RED} {[i['name'] for i in result]} {Style.RESET_ALL}")
+                    print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
                     category['subcategories'] = []
                     for item in result:
                         print(f'идем по списку {item["name"]} - {level}')
                         category['subcategories'].append(load_subcategories(item, context, level + 1))
                 else:
-                    print(f'{Fore.GREEN} {level * "-" + "-"} Категорий НЕТ!, [Родитель: {category["name"]}], {level} {Style.RESET_ALL}')
+                    print(f'{Fore.GREEN}{level * "-" + "-"} Категорий НЕТ!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
                     category['Категория'] = f'Категорий нет {level}'
 
     except Exception as e:
-        print(f"Error processing {category['name']}: {str(e)}")
+        print(f"{Fore.RED}Error processing {category['name']}: {str(e)}{Style.RESET_ALL}")
     finally:
         page.close()
 
@@ -273,19 +288,19 @@ def parse_all_categories() -> list | None:
             print('Получаю категории')
             main_categories = load_main_categories(context)
             print('Получаю подкатегории 0')
-            for category in main_categories[13:14]:
+            for category in main_categories[:3]:
                 result.append(load_subcategories(category, context))
 
             return result
 
         except PlaywrightTimeoutError as e:
-            print(f"Timeout error occurred: {e}")
+            print(f"{Fore.BLUE}Timeout error occurred: {e}{Style.RESET_ALL}")
             # Можно сделать скриншот для диагностики
             # page.screenshot(path="error_screenshot.png")
             return None
 
         except Exception as e:
-            print(f"Other error occurred: {e}")
+            print(f"{Fore.BLUE}Other error occurred: {e}{Style.RESET_ALL}")
             return None
 
         finally:
