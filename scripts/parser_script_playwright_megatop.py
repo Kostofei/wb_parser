@@ -1,3 +1,6 @@
+from typing import Any, Union
+from openpyxl.styles import Alignment
+import pandas as pd
 from colorama import Fore, Style, init
 from playwright.sync_api import (sync_playwright, TimeoutError as PlaywrightTimeoutError,
                                  Page, Playwright, Browser, BrowserContext)
@@ -15,25 +18,99 @@ TIME_WAIT = 1000
 @timeit
 def run_wb_parser():
     result = parse_all_categories()
-    print(result)
-    # print_categories(result)
+    process_categories_to_excel(result)
 
 
-def print_categories(categories, level=0):
-    if not categories:
-        return
+def process_categories_to_excel(
+        initial_data: list[dict],
+        output_filename: str = "categories.xlsx",
+        exclude_root_in_path: bool = True
+) -> None:
+    """
+    Обрабатывает категории и сохраняет их в Excel файл с уровнями вложенности
 
-    for cat in categories:
-        # Отступ в зависимости от уровня вложенности
-        indent = "  " * level
-        # Печатаем информацию о категории
-        # print(f"{indent}\n{cat['name']} ({len(cat['subcategories'])} подкатегорий): level{level}")
-        print(f"{indent}\n{cat}: level{level}")
+    Args:
+        initial_data: Исходные данные категорий (список словарей)
+        output_filename: Имя выходного файла Excel
+        exclude_root_in_path: Исключать ли корневой элемент из пути
+    """
 
-        # Если есть подкатегории, рекурсивно обрабатываем их
+    def _get_categories_with_levels(
+            item: dict[str, Any],
+            current_level: int = 0,
+            parent_path: list[str] | None = None
+    ) -> list[dict[str, Union[str, int]]]:
+        """Рекурсивно извлекает категории с уровнями вложенности"""
+        categories: list[dict[str, Union[str, int]]] = []
+        current_path = parent_path if parent_path is not None else []
 
-        if cat.get('subcategories', None):
-            print_categories(cat['subcategories'], level + 2)
+        # Формируем путь (исключаем корневой уровень если требуется)
+        if not exclude_root_in_path or current_level > 0:
+            current_path = current_path + [item['name']]
+
+        # Обрабатываем категории текущего элемента
+        if 'Категория' in item:
+            item_categories = item['Категория']
+            if isinstance(item_categories, list):
+                for category in item_categories:
+                    categories.append({
+                        'Категория': category,
+                        'Уровень': current_level,
+                        'Путь': ' → '.join(current_path) if current_path else "Основной раздел"
+                    })
+            else:
+                categories.append({
+                    'Категория': item_categories,
+                    'Уровень': current_level,
+                    'Путь': ' → '.join(current_path) if current_path else "Основной раздел"
+                })
+
+        # Рекурсивно обрабатываем подкатегории
+        if 'subcategories' in item:
+            for sub in item['subcategories']:
+                categories.extend(_get_categories_with_levels(
+                    sub,
+                    current_level + 1,
+                    current_path.copy()
+                ))
+
+        return categories
+
+    # Создаем Excel-файл
+    with pd.ExcelWriter(output_filename, engine='openpyxl') as writer:
+        for section in initial_data:
+            section_name = section['name']
+            all_categories: list[dict[str, Union[str, int]]] = []
+
+            if 'subcategories' in section:
+                for subcategory in section['subcategories']:
+                    all_categories.extend(_get_categories_with_levels(
+                        subcategory,
+                        current_level=1,
+                        parent_path=[]
+                    ))
+
+            # Создаем DataFrame
+            df = pd.DataFrame(all_categories)
+            if not df.empty:
+                df = df[['Категория', 'Уровень', 'Путь']]
+                df.to_excel(writer, sheet_name=section_name, index=False)
+
+                # Форматирование листа
+                worksheet = writer.sheets[section_name]
+
+                # Центрирование столбца с уровнями
+                for row in worksheet.iter_rows(min_row=2, min_col=2, max_col=2):
+                    for cell in row:
+                        cell.alignment = Alignment(horizontal='center', vertical='center')
+
+                # Центрирование заголовка
+                worksheet['B1'].alignment = Alignment(horizontal='center', vertical='center')
+
+                # Настройка ширины столбцов
+                worksheet.column_dimensions['A'].width = 30  # Категория
+                worksheet.column_dimensions['B'].width = 10  # Уровень
+                worksheet.column_dimensions['C'].width = 50  # Путь
 
 
 def create_browser_session(p: Playwright) -> tuple[Browser, BrowserContext]:
