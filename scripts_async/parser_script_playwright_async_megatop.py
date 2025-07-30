@@ -1,18 +1,20 @@
+import gc
 import asyncio
+import tracemalloc
 from playwright.async_api import (async_playwright, TimeoutError as PlaywrightTimeoutError,
-                                  Page, Playwright, Browser, BrowserContext, Page, Locator,
-                                  ElementHandle)
+                                  Page, Playwright, Browser, BrowserContext)
 
 from parser.decorators import timeit
 
 # Константы
 TARGET_URL = "https://www.wildberries.by"
-EXCLUDED_CATEGORIES = ['бренды', 'wibes', 'экспресс', 'акции', 'грузовая доставка', 'обувь']
+EXCLUDED_CATEGORIES = ['бренды', 'wibes', 'экспресс', 'акции', 'грузовая доставка']
 
 
 class EmptyCategoriesError(Exception):
     """Вызывается, когда не удалось загрузить категории"""
     pass
+
 
 @timeit
 async def run_wb_parser():
@@ -78,7 +80,6 @@ async def route_handler(route, request):
         await route.continue_()  # В случае ошибки лучше пропустить запрос
 
 
-
 async def load_main_categories(context: BrowserContext) -> list:
     """Загружает список основных категорий с сайта"""
     # Открытие новой вкладки
@@ -95,7 +96,7 @@ async def load_main_categories(context: BrowserContext) -> list:
         )
 
         # Ожидание и клик по бургер-меню
-        burger_button  = await page.wait_for_selector(
+        burger_button = await page.wait_for_selector(
             'button.nav-element__burger.j-menu-burger-btn',
             state="visible",
             timeout=30000
@@ -121,7 +122,7 @@ async def load_main_categories(context: BrowserContext) -> list:
                 if not category_link:
                     continue
 
-                name  = (await category_link.inner_text()).strip()
+                name = (await category_link.inner_text()).strip()
                 if name.lower() in EXCLUDED_CATEGORIES:
                     continue
 
@@ -140,17 +141,21 @@ async def load_main_categories(context: BrowserContext) -> list:
         return []
     finally:
         await page.close()
+        del page
+        gc.collect()
 
 
 async def load_subcategories(
         category: dict,
+        all_categories: list,
         context: BrowserContext,
         sem: asyncio.Semaphore,
         level: int = 1
 ) -> dict:
     """Загружает подкатегории для указанной категории"""
     async with sem:
-        print(f'{level * "-"} {category["name"]} - [Родитель: {category.get("parent") if category.get("parent") else "Нет!"}]')
+        print(
+            f'{level * "-"} {category["name"]} - [Родитель: {category.get("parent") if category.get("parent") else "Нет!"}]')
         page = await context.new_page()
         try:
             # Настройка страницы
@@ -164,13 +169,14 @@ async def load_subcategories(
             )
 
             # Основная логика сбора данных
-            result = await _extract_subcategories(page, category, level)
+            result = await _extract_subcategories(page, category, all_categories, level)
 
             if result:
-                print('Получаю подкатегории')
-                sub_sem = asyncio.Semaphore(2)
-                tasks = [load_subcategories(subcat, context, sub_sem, level + 1) for subcat in result]
-                category['subcategories'] = await asyncio.gather(*tasks, return_exceptions=True)
+                new_all_categories = [i['name'] for i in result]
+                print(f'Получаю подкатегории {level}')
+                sub_sem = asyncio.Semaphore(5)
+                tasks = [load_subcategories(subcat, new_all_categories, context, sub_sem, level + 1) for subcat in result]
+                category['subcategories'] = await asyncio.gather(*tasks, return_exceptions=False)
 
             return category
 
@@ -179,135 +185,44 @@ async def load_subcategories(
             return category
         finally:
             await page.close()
+            del page
+            gc.collect()
 
 
-    # async with sem:
-    #     print(f'{level*"-"} {category["name"]}')
-    #     result = []
-    #     page = await context.new_page()
-    #     try:
-    #         # Настройка страницы
-    #         # page.route("**/*", route_handler)
-    #
-    #         await page.goto(
-    #             f"{TARGET_URL}{category['url']}",
-    #             timeout=120000,  # 2 минуты на загрузку
-    #             wait_until="domcontentloaded"  # Ждем только загрузки DOM, а не всех ресурсов
-    #         )
-    #
-    #         # Основная логика сбора данных
-    #         result = await _extract_subcategories(page, category, level)
-    #
-    #         try:
-    #             try:
-    #                 # Ждем появления меню с категориями subcategory-item
-    #                 await page.wait_for_selector(selector='ul.menu-menu-category__subcategory-item',
-    #                                        state="visible",
-    #                                        timeout=1500)
-    #                 # Получаем все элементы меню (включая заголовки)
-    #                 menu_items = await page.query_selector_all('li.menu-category__item:not(.menu-category__item--back)')
-    #             except:
-    #                 # Ждем появления меню с категориями category__list
-    #                 await page.wait_for_selector(selector='ul.menu-category__list',
-    #                                        state="visible",
-    #                                        timeout=1500)
-    #                 # Получаем все элементы меню (включая заголовки)
-    #                 menu_items = await page.query_selector_all('li.menu-category__item:not(.menu-category__item--back)')
-    #
-    #             for menu_item in menu_items:
-    #                 # Пропускаем заголовки (элементы с тегом <p>)
-    #                 if await menu_item.query_selector('p.menu-category__title'):
-    #                     continue
-    #
-    #                 # Извлекаем ссылки
-    #                 link = await menu_item.query_selector('a.menu-category__link')
-    #                 if link:
-    #                     result.append({
-    #                         'name': (await link.inner_text()).strip(),
-    #                         'url': await link.get_attribute('href'),
-    #                         'parent': category['name'],
-    #                     })
-    #             print('Получаю под подкатегории')
-    #             sem = asyncio.Semaphore(5)  # Максимум X задач одновременно
-    #             tasks = [load_subcategories(category, context, sem, level + 1) for category in result]
-    #             category['subcategories'] = await asyncio.gather(*tasks)
-    #         except:
-    #             await page.wait_for_timeout(1500)
-    #             # Получаем все элементы "Категория"
-    #             show_all_filter = page.locator("div.dropdown-filter:has-text('Категория')")
-    #             await page.wait_for_timeout(1500)
-    #             if await show_all_filter.count() >= 2:
-    #                 await show_all_filter.nth(1).hover()
-    #
-    #                 show_all_buttons = page.locator("button.filter__show-all:has-text('Показать все')")
-    #                 await page.wait_for_timeout(1500)
-    #                 if await show_all_buttons.count() >= 2:
-    #                     await show_all_buttons.nth(1).click()
-    #
-    #                 count_items = 0
-    #                 while True:
-    #                     await page.wait_for_timeout(1500)
-    #                     all_items = await page.query_selector_all('li.filter__item')
-    #                     await all_items[-1].hover()
-    #                     if count_items == len(all_items):
-    #                         break
-    #                     count_items = len(all_items)
-    #
-    #                 for i in all_items:
-    #                     # Извлекаем ссылки
-    #                     link = await i.query_selector('span.checkbox-with-text__text')
-    #                     parent_classes = await i.evaluate("e => e.closest('.measurementContainer--GRwov') === null")
-    #                     if link and parent_classes:
-    #                         result.append({
-    #                             'latest_categories': (await link.inner_text()).strip(),
-    #                             'investment': level,
-    #                         })
-    #                 print(f'{level * "-" + "--"} {result}')
-    #                 category['Категория'] = result
-    #             else:
-    #                 await page.wait_for_timeout(1500)
-    #                 await page.wait_for_selector(f"button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name")
-    #                 all_items = await page.query_selector_all('li.filter-category__item')
-    #                 await page.wait_for_timeout(1500)
-    #                 for i in all_items:
-    #                     # Извлекаем ссылки
-    #                     link = await i.query_selector('a.filter-category__link')
-    #                     await page.wait_for_timeout(1500)
-    #                     if link:
-    #                         result.append({
-    #                             'name': (await link.inner_text()).strip(),
-    #                             'url': await link.get_attribute('href'),
-    #                             'parent': category['name'],
-    #                         })
-    #
-    #                 print('Получаю под подкатегории')
-    #                 sem = asyncio.Semaphore(5)  # Максимум X задач одновременно
-    #                 tasks = [load_subcategories(category, context, sem, level + 1) for category in result]
-    #                 category['subcategories'] = await asyncio.gather(*tasks)
-    #
-    #     except Exception as e:
-    #         print(f"Error processing {category['name']}: {str(e)}")
-    #     finally:
-    #         await page.close()
-    #
-    # return category
-
-
-async def _extract_subcategories(page, category: dict, level: int) -> list:
+async def _extract_subcategories(
+        page: Page,
+        category: dict,
+        all_categories: list,
+        level: int
+) -> list:
     """Вспомогательная функция для извлечения подкатегорий"""
+
+    # # 🔍 Старт мониторинга памяти
+    # tracemalloc.start()
+    # snapshot_before = tracemalloc.take_snapshot()
+
     result = []
 
     try:
         # Попытка первого варианта структуры страницы
         try:
             await page.wait_for_selector(
-                'ul.menu-menu-category__subcategory-item',
+                'ul.menu-category__subcategory',
                 state="visible",
                 timeout=1500
             )
             menu_items = await page.query_selector_all(
-                'li.menu-category__item:not(.menu-category__item--back)'
+                'li.menu-category__subcategory-item'
             )
+            # Обработка найденных элементов
+            for item in menu_items:
+                link = await item.query_selector('a.menu-category__subcategory-link')
+                if link:
+                    result.append({
+                        'name': (await link.inner_text()).strip(),
+                        'url': await link.get_attribute('href'),
+                        'parent': category['name'],
+                    })
         except:
             # Попытка второго варианта структуры страницы
             await page.wait_for_selector(
@@ -316,29 +231,46 @@ async def _extract_subcategories(page, category: dict, level: int) -> list:
                 timeout=1500
             )
             menu_items = await page.query_selector_all(
-                'li.menu-category__item:not(.menu-category__item--back)'
+                'li.menu-category__item'
             )
+            # Обработка найденных элементов
+            for item in menu_items:
+                if await item.query_selector('p.menu-category__item'):
+                    continue
 
-        # Обработка найденных элементов
-        for item in menu_items:
-            if await item.query_selector('p.menu-category__title'):
-                continue
-
-            link = await item.query_selector('a.menu-category__link')
-            if link:
-                result.append({
-                    'name': (await link.inner_text()).strip(),
-                    'url': await link.get_attribute('href'),
-                    'parent': category['name'],
-                })
+                link = await item.query_selector('a.menu-category__link')
+                if link:
+                    result.append({
+                        'name': (await link.inner_text()).strip(),
+                        'url': await link.get_attribute('href'),
+                        'parent': category['name'],
+                    })
         return result
 
     except:
         # Альтернативная логика для других структур страниц
-        return await _extract_alternative_structure(page, category, level)
+        return await _extract_alternative_structure(page, category, all_categories, level)
+
+    # finally:
+    #     # 📸 Снимок памяти после выполнения
+    #     snapshot_after = tracemalloc.take_snapshot()
+    #     stats = snapshot_after.compare_to(snapshot_before, 'lineno')
+    #
+    #     print(f"\n📈 [Топ 5 по потреблению памяти в _extract_subcategories (level={level})]:")
+    #     for i, stat in enumerate(stats[:5]):
+    #         print(f"{i + 1}. {stat}")
+    #
+    #     tracemalloc.stop()
+    #
+    # return result
 
 
-async def _extract_alternative_structure(page, category: dict, level: int) -> list | None:
+async def _extract_alternative_structure(
+        page: Page,
+        category: dict,
+        all_categories: list,
+        level: int
+) -> list | None:
     """Обработка альтернативных структур страниц (категории в фильтрах)"""
     result = []
 
@@ -354,7 +286,6 @@ async def _extract_alternative_structure(page, category: dict, level: int) -> li
             await page.wait_for_timeout(1500)
             if await show_all_buttons.count() >= 2:
                 await show_all_buttons.nth(1).click()
-
 
             # Сбор всех элементов категорий
             all_items = []
@@ -381,7 +312,6 @@ async def _extract_alternative_structure(page, category: dict, level: int) -> li
             print(f'{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}')
             category['Категория'] = result
             return None
-
         else:
             # Вариант 2: Категории в бургер-меню
             await page.wait_for_timeout(1500)
@@ -389,7 +319,7 @@ async def _extract_alternative_structure(page, category: dict, level: int) -> li
                 "button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name",
                 timeout=5000
             )
-            await burger_button.click()
+            await burger_button.hover()
             await page.wait_for_timeout(1500)
 
             # Сбор элементов из бургер-меню
@@ -402,12 +332,17 @@ async def _extract_alternative_structure(page, category: dict, level: int) -> li
                         'url': await link.get_attribute('href'),
                         'parent': category['name']
                     })
-            return result
+            new_result = [i['name'] for i in result]
+            if new_result != all_categories:
+                return result
+            else:
+                print(f'{level * "-" + "-"} Категорий НЕТ!, [Родитель: {category["name"]}], {level}')
+                category['Категория'] = f'Категорий нет {level}'
+                return None
 
     except Exception as e:
         print(f"Ошибка при обработке альтернативной структуры: {str(e)}")
-
-    return result
+        return None
 
 
 async def parse_all_categories() -> list | None:
@@ -420,9 +355,10 @@ async def parse_all_categories() -> list | None:
             if not list_main_categories:
                 raise EmptyCategoriesError("Не удалось загрузить категории (пустой список)")
 
-            print('Получаю подкатегории')
-            sem = asyncio.Semaphore(5)  # Максимум X задач одновременно
-            tasks = [load_subcategories(category, context, sem) for category in list_main_categories[12:14]]
+            print('Получаю подкатегории 0')
+            sem = asyncio.Semaphore(10)  # Максимум X задач одновременно
+            all_categories = [category['name'] for category in list_main_categories]
+            tasks = [load_subcategories(category, all_categories, context, sem) for category in list_main_categories[13:14]]
             results = await asyncio.gather(*tasks)
 
             # Фильтруем результаты, удаляя исключения
