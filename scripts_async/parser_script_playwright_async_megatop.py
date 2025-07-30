@@ -1,14 +1,53 @@
 import gc
 import asyncio
+import time
 import tracemalloc
-from playwright.async_api import (async_playwright, TimeoutError as PlaywrightTimeoutError,
-                                  Page, Playwright, Browser, BrowserContext)
+from functools import wraps
+from playwright.async_api import (async_playwright, TimeoutError as PlaywrightTimeoutError, Page, Playwright, Browser, BrowserContext)
 
-from parser.decorators import timeit
 
 # Константы
 TARGET_URL = "https://www.wildberries.by"
 EXCLUDED_CATEGORIES = ['бренды', 'wibes', 'экспресс', 'акции', 'грузовая доставка']
+TIME_WAIT = 500
+
+
+def timeit(func):
+    """
+    Асинхронный декоратор для измерения времени выполнения функции.
+
+    Аргументы:
+        func (function): Асинхронная функция, время выполнения которой нужно измерить.
+
+    Возвращает:
+        function: Обёрнутая асинхронная функция с измерением времени выполнения.
+    """
+
+    @wraps(func)
+    async def async_wrapper(*args, **kwargs):
+        start_time = time.time()
+        try:
+            result = await func(*args, **kwargs)  # Ожидаем выполнение корутины
+            end_time = time.time()
+            print(f'Функция {func.__name__} выполнилась за {end_time - start_time:.4f} сек.')
+            return result
+        except Exception as e:
+            end_time = time.time()
+            print(f'Функция {func.__name__} завершилась с ошибкой за {end_time - start_time:.4f} сек.')
+            raise e
+
+    # Поддержка как синхронных, так и асинхронных функций
+    def wrapper(*args, **kwargs):
+        if asyncio.iscoroutinefunction(func):
+            return async_wrapper(*args, **kwargs)
+        else:
+            start_time = time.time()
+            result = func(*args, **kwargs)
+            end_time = time.time()
+            print(f'Синхронная функция {func.__name__} выполнилась за {end_time - start_time:.4f} сек.')
+            return result
+
+    return wrapper
 
 
 class EmptyCategoriesError(Exception):
@@ -52,8 +91,8 @@ async def create_browser_session(p: Playwright) -> tuple[Browser, BrowserContext
     """
     # Запускаем браузер с дополнительными параметрами
     browser = await p.chromium.launch(
-        headless=True,
-        # headless=False,
+        # headless=True,
+        headless=False,
         timeout=60000,  # Увеличиваем таймаут запуска браузера
         slow_mo=0  # Добавляем задержку между действиями (мс)
     )
@@ -80,6 +119,7 @@ async def route_handler(route, request):
         await route.continue_()  # В случае ошибки лучше пропустить запрос
 
 
+@timeit
 async def load_main_categories(context: BrowserContext) -> list:
     """Загружает список основных категорий с сайта"""
     # Открытие новой вкладки
@@ -101,7 +141,7 @@ async def load_main_categories(context: BrowserContext) -> list:
             state="visible",
             timeout=30000
         )
-        await burger_button.click()
+        await burger_button.hover()
 
         # Ждем появления второго меню
         await page.wait_for_selector(
@@ -174,7 +214,7 @@ async def load_subcategories(
             if result:
                 new_all_categories = [i['name'] for i in result]
                 print(f'Получаю подкатегории {level}')
-                sub_sem = asyncio.Semaphore(5)
+                sub_sem = asyncio.Semaphore(2)
                 tasks = [load_subcategories(subcat, new_all_categories, context, sub_sem, level + 1) for subcat in result]
                 category['subcategories'] = await asyncio.gather(*tasks, return_exceptions=False)
 
@@ -209,7 +249,7 @@ async def _extract_subcategories(
             await page.wait_for_selector(
                 'ul.menu-category__subcategory',
                 state="visible",
-                timeout=1500
+                timeout=TIME_WAIT
             )
             menu_items = await page.query_selector_all(
                 'li.menu-category__subcategory-item'
@@ -228,7 +268,7 @@ async def _extract_subcategories(
             await page.wait_for_selector(
                 'ul.menu-category__list',
                 state="visible",
-                timeout=1500
+                timeout=TIME_WAIT
             )
             menu_items = await page.query_selector_all(
                 'li.menu-category__item'
@@ -276,14 +316,14 @@ async def _extract_alternative_structure(
 
     try:
         # Ожидание и обработка фильтра "Категория"
-        await page.wait_for_timeout(1500)
+        await page.wait_for_timeout(TIME_WAIT)
         show_all_filter = page.locator("div.dropdown-filter:has-text('Категория')")
-        await page.wait_for_timeout(1500)
+        await page.wait_for_timeout(TIME_WAIT)
         if await show_all_filter.count() >= 2:
             await show_all_filter.nth(1).hover()
 
             show_all_buttons = page.locator("button.filter__show-all:has-text('Показать все')")
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(TIME_WAIT)
             if await show_all_buttons.count() >= 2:
                 await show_all_buttons.nth(1).click()
 
@@ -296,7 +336,7 @@ async def _extract_alternative_structure(
                     break
 
                 await current_items[-1].hover()
-                await page.wait_for_timeout(500)
+                await page.wait_for_timeout(TIME_WAIT)
                 count_items = len(current_items)
                 all_items = current_items
 
@@ -314,13 +354,13 @@ async def _extract_alternative_structure(
             return None
         else:
             # Вариант 2: Категории в бургер-меню
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(TIME_WAIT)
             burger_button = await page.wait_for_selector(
                 "button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name",
-                timeout=5000
+                timeout=50000
             )
             await burger_button.hover()
-            await page.wait_for_timeout(1500)
+            await page.wait_for_timeout(TIME_WAIT)
 
             # Сбор элементов из бургер-меню
             menu_items = await page.query_selector_all('li.filter-category__item')
@@ -356,9 +396,9 @@ async def parse_all_categories() -> list | None:
                 raise EmptyCategoriesError("Не удалось загрузить категории (пустой список)")
 
             print('Получаю подкатегории 0')
-            sem = asyncio.Semaphore(10)  # Максимум X задач одновременно
+            sem = asyncio.Semaphore(2)  # Максимум X задач одновременно
             all_categories = [category['name'] for category in list_main_categories]
-            tasks = [load_subcategories(category, all_categories, context, sem) for category in list_main_categories[13:14]]
+            tasks = [load_subcategories(category, all_categories, context, sem) for category in list_main_categories]
             results = await asyncio.gather(*tasks)
 
             # Фильтруем результаты, удаляя исключения
