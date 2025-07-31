@@ -258,14 +258,14 @@ def load_subcategories(
                 process_menu_items(page, context, category, 'list', level)
                 break
 
-            category_filter = page.locator("div.dropdown-filter:has-text('Категория'):visible").first
-            if category_filter:
+            # Получаем все элементы dropdown dropdown-filter
+            category_filter = page.locator("div.dropdown-filter:has-text('Категория'):visible")
+            if category_filter.count() > 0:
                 category_filter.hover()
-                load_and_collect_categories(page, category, level)
+                process_menu_items(page, category, level)
                 break
 
-            # Получаем все элементы dropdown - filter__btn - -burger
-            result = []
+            # Получаем все элементы dropdown filter__btn--burger
             btm_burger = page.locator('button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name').first
             if btm_burger.text_content() not in category.get('parent'):
                 btm_burger.hover()
@@ -368,48 +368,38 @@ def load_and_collect_categories(page: Page, category: dict, level: int) -> None:
             page (Page): Страница Playwright, на которой происходит поиск и взаимодействие с элементами.
             category (dict): Словарь, представляющий категорию, в которую будут добавлены собранные подкатегории.
             level (int): Уровень вложенности категории, используется для форматирования вывода.
-
-        Raises:
-            PlaywrightTimeoutError: Если происходит таймаут ожидания элемента.
-            Exception: Для других возможных ошибок, которые могут возникнуть во время выполнения.
     """
-    try:
-        page.wait_for_timeout(100)
-        show_all_button = page.locator("button.filter__show-all:has-text('Показать все'):visible").first
-        if show_all_button and show_all_button.is_visible():
-            show_all_button.click()
+    page.wait_for_timeout(100)
+    show_all_button = page.locator("button.filter__show-all:has-text('Показать все'):visible").first
+    if show_all_button and show_all_button.is_visible():
+        show_all_button.click()
 
-            current_items = page.locator('li.filter__item:visible').all()
-            while True:
-                if not current_items:
-                    page.wait_for_timeout(500)
-                    current_items = page.locator('li.filter__item:visible').all()
-                    continue
+        current_items = page.locator('li.filter__item:visible').all()
+        while True:
+            if not current_items:
+                page.wait_for_timeout(500)
+                current_items = page.locator('li.filter__item:visible').all()
+                continue
 
-                current_items[-1].hover()
-                page.wait_for_timeout(100)
+            current_items[-1].hover()
+            page.wait_for_timeout(100)
 
-                new_items = page.locator('li.filter__item:visible').all()
-                if len(new_items) == len(current_items):
-                    break
+            new_items = page.locator('li.filter__item:visible').all()
+            if len(new_items) == len(current_items):
+                break
 
-                current_items = new_items
-        else:
-            current_items = page.locator('li.filter__item:visible').all()
+            current_items = new_items
+    else:
+        current_items = page.locator('li.filter__item:visible').all()
 
-        result = []
-        for item in current_items:
-            link = item.locator('span.checkbox-with-text__text')
-            if link:
-                result.append(link.inner_text().strip())
+    result = []
+    for item in current_items:
+        link = item.locator('span.checkbox-with-text__text')
+        if link:
+            result.append(link.inner_text().strip())
 
-        print(f'{Fore.YELLOW}{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
-        category['Категория'] = result
-
-    except PlaywrightTimeoutError:
-        print("Таймаут ожидания элемента")
-    except Exception as e:
-        print(f"Произошла ошибка: {e}")
+    print(f'{Fore.YELLOW}{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
+    category['Категория'] = result
 
 
 def load_and_collect_subcategories(page: Page, context: BrowserContext, category: dict, level: int) -> None:
@@ -424,37 +414,27 @@ def load_and_collect_subcategories(page: Page, context: BrowserContext, category
             context (BrowserContext): Контекст браузера Playwright, используемый для открытия новых страниц.
             category (dict): Словарь, представляющий категорию, в которую будут добавлены собранные подкатегории.
             level (int): Уровень вложенности категории, используется для форматирования вывода.
-
-        Raises:
-            PlaywrightTimeoutError: Если происходит таймаут ожидания элемента.
-            Exception: Для других возможных ошибок, которые могут возникнуть во время выполнения.
     """
     result = []
-    try:
-        page.wait_for_timeout(100)
-        all_items = page.locator('ul.filter-category__list > li.filter-category__item').all()
-        for item in all_items:
-            # Извлекаем ссылки
-            link = item.locator('a.filter-category__link').first
-            if link:
-                parent = category['parent'].copy() if category.get('parent') else []
-                parent.append(category['name'])
-                result.append({
-                    'name': link.inner_text().strip(),
-                    'url': link.get_attribute('href'),
-                    'parent': parent,
-                    'level': level,
-                })
-        print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
-        category['subcategories'] = []
-        for item in result:
-            print(f'идем по списку {item["name"]} - {level}')
-            category['subcategories'].append(load_subcategories(item, context, level + 1))
-
-    except PlaywrightTimeoutError:
-        print("Таймаут ожидания элемента")
-    except Exception as e:
-        print(f"Произошла ошибка: {e}")
+    page.wait_for_timeout(100)
+    all_items = page.locator('ul.filter-category__list > li.filter-category__item').all()
+    for item in all_items:
+        # Извлекаем ссылки
+        link = item.locator('a.filter-category__link').first
+        if link:
+            parent = category['parent'].copy() if category.get('parent') else []
+            parent.append(category['name'])
+            result.append({
+                'name': link.inner_text().strip(),
+                'url': link.get_attribute('href'),
+                'parent': parent,
+                'level': level,
+            })
+    print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
+    category['subcategories'] = []
+    for item in result:
+        print(f'идем по списку {item["name"]} - {level}')
+        category['subcategories'].append(load_subcategories(item, context, level + 1))
 
 
 def parse_all_categories() -> list | None:
