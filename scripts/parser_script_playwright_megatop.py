@@ -222,22 +222,28 @@ def load_subcategories(
         context: BrowserContext,
         level: int = 0
 ) -> dict:
-    print(f'{level * "-"} {category["name"]}{" - " + category.get("patent") if category.get("parent") else ""}')
-    while True:
-        result = []
-        page = context.new_page()
-        try:
-            page.route("**/*", route_handler)
+    print(f'{level * "- " if level != 0 else ""}{category["name"]}{" - " + category.get("patent") if category.get("parent") else ""}')
+    print(category)
+    result = []
+    page = context.new_page()
+    try:
+        page.route("**/*", route_handler)
 
-            page.goto(
-                f"{TARGET_URL}{category['url']}",
-                timeout=120000,  # 2 минуты на загрузку
-                wait_until="domcontentloaded"  # Ждем только загрузки DOM, а не всех ресурсов
-            )
+        page.goto(
+            f"{TARGET_URL}{category['url']}",
+            timeout=120000,  # 2 минуты на загрузку
+            wait_until="domcontentloaded"  # Ждем только загрузки DOM, а не всех ресурсов
+        )
 
-            page.wait_for_timeout(TIME_WAIT)
+        page.wait_for_timeout(TIME_WAIT)
+        while True:
             try:
                 try:
+
+                    # menu_subcategory = page.locator('ul.menu-category__subcategory')
+                    # if menu_subcategory.count() > 0:
+                    #     print('menu_list', menu_subcategory.count())
+
                     # Ждем появления меню с категориями subcategory-item
                     page.wait_for_selector(selector='ul.menu-category__subcategory',
                                            state="visible",
@@ -257,6 +263,10 @@ def load_subcategories(
                                 'parent': parent,
                             })
                 except:
+                    # menu_list  = page.locator('ul.menu-category__list')
+                    # if menu_list.count() > 0:
+                    #     print('menu_list', menu_list.count())
+
                     # Ждем появления меню с категориями menu-category__list
                     page.wait_for_selector(selector='ul.menu-category__list',
                                            state="visible",
@@ -279,15 +289,16 @@ def load_subcategories(
                                 'url': link.get_attribute('href'),
                                 'parent': parent,
                             })
-
                 print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
                 category['subcategories'] = []
                 for item in result:
                     print(f'идем по списку {item["name"]} - {level + 1}')
                     category['subcategories'].append(load_subcategories(item, context, level + 1))
+
                 break
             except:
                 try:
+                    print(4)
                     page.wait_for_timeout(TIME_WAIT)
                     # Получаем все элементы "Категория"
                     category_filter = page.locator("div.dropdown-filter:has-text('Категория')")
@@ -334,10 +345,11 @@ def load_subcategories(
                         category['Категория'] = result
                         break
                     else:
+                        print(5)
                         page.wait_for_timeout(TIME_WAIT)
-                        btm_burger = page.wait_for_selector(
-                            'button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name')
+                        btm_burger = page.wait_for_selector('button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name')
                         if btm_burger.text_content() not in category.get('parent'):
+                            print(6)
                             btm_burger.hover()
                             page.wait_for_timeout(TIME_WAIT)
                             items = page.query_selector_all('ul.filter-category__list > li.filter-category__item')
@@ -360,17 +372,16 @@ def load_subcategories(
                                 category['subcategories'].append(load_subcategories(item, context, level + 1))
                             break
                         else:
-                            print(
-                                f'{Fore.GREEN}{level * " "} Категорий НЕТ!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
+                            print(f'{Fore.GREEN}{level * " "} Категорий НЕТ!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
                             category['Категория'] = f'Категорий нет {level}'
                             break
                 except Exception as e:
                     print(f"{Fore.RED}Error processing {category['name']}: {str(e)}{Style.RESET_ALL}")
 
-        except Exception as e:
-            print(f"{Fore.RED}Error processing {category['name']}: {str(e)}{Style.RESET_ALL}")
-        finally:
-            page.close()
+    except Exception as e:
+        print(f"{Fore.RED}Error processing {category['name']}: {str(e)}{Style.RESET_ALL}")
+    finally:
+        page.close()
 
     return category
 
