@@ -247,10 +247,12 @@ def load_subcategories(
                     # Извлекаем ссылки
                     link = menu_item.query_selector('a.menu-category__subcategory-link')
                     if link:
+                        parent = category['parent'].copy() if category.get('parent') else []
+                        parent.append(category['name'])
                         result.append({
                             'name': link.inner_text().strip(),
                             'url': link.get_attribute('href'),
-                            'parent': category['name'],
+                            'parent': parent,
                         })
             except:
                 # Ждем появления меню с категориями menu-category__list
@@ -268,10 +270,12 @@ def load_subcategories(
                     # Извлекаем ссылки
                     link = menu_item.query_selector('a.menu-category__link')
                     if link:
+                        parent = category['parent'].copy() if category.get('parent') else []
+                        parent.append(category['name'])
                         result.append({
                             'name': link.inner_text().strip(),
                             'url': link.get_attribute('href'),
-                            'parent': category['name'],
+                            'parent': parent,
                         })
             print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
             category['subcategories'] = []
@@ -325,25 +329,28 @@ def load_subcategories(
                 category['Категория'] = result
             else:
                 page.wait_for_timeout(TIME_WAIT)
-                page.wait_for_selector('button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name').hover()
-                page.wait_for_timeout(TIME_WAIT)
-                all_items = page.query_selector_all('ul.filter-category__list > li.filter-category__item')
-                for item in all_items:
-                    # Извлекаем ссылки
-                    link = item.query_selector('a.filter-category__link')
-                    if link:
-                        result.append({
-                            'name': link.inner_text().strip(),
-                            'url': link.get_attribute('href'),
-                            'parent': category['name'],
-                        })
+                btm_burger = page.wait_for_selector('button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name')
+                if btm_burger.text_content() not in category.get('parent'):
+                    btm_burger.hover()
+                    page.wait_for_timeout(TIME_WAIT)
+                    all_items = page.query_selector_all('ul.filter-category__list > li.filter-category__item')
+                    for item in all_items:
+                        # Извлекаем ссылки
+                        link = item.query_selector('a.filter-category__link')
+                        if link:
+                            parent = category['parent'].copy() if category.get('parent') else []
+                            parent.append(category['name'])
+                            result.append({
+                                'name': link.inner_text().strip(),
+                                'url': link.get_attribute('href'),
+                                'parent': parent,
+                            })
 
-                if category['name'] not in [item['name'] for item in result]:
-                    print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
-                    category['subcategories'] = []
-                    for item in result:
-                        print(f'идем по списку {item["name"]} - {level}')
-                        category['subcategories'].append(load_subcategories(item, context, level + 1))
+                print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
+                category['subcategories'] = []
+                for item in result:
+                    print(f'идем по списку {item["name"]} - {level}')
+                    category['subcategories'].append(load_subcategories(item, context, level + 1))
                 else:
                     print(f'{Fore.GREEN}{level * "-" + "-"} Категорий НЕТ!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
                     category['Категория'] = f'Категорий нет {level}'
