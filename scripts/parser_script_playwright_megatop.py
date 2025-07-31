@@ -222,7 +222,8 @@ def load_subcategories(
         context: BrowserContext,
         level: int = 1
 ) -> dict:
-    print(f'{level * "-"} {category["name"]}')
+    category_parent = f'. {Fore.CYAN}Родитель - {category.get("parent")}{Style.RESET_ALL}' if category.get("parent") else ""
+    print(f'{level * "-" if level != 1 else ""}{category["name"]}{category_parent}')
     result = []
     page = context.new_page()
     try:
@@ -371,7 +372,7 @@ def parse_all_categories() -> list | None:
         try:
             print('Получаю категории')
             main_categories = load_main_categories(context)
-            print('Получаю подкатегории 0')
+            print('- Получаю подкатегории для категорий')
             for category in main_categories[:3]:
                 result.append(load_subcategories(category, context))
 
