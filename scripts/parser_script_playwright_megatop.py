@@ -223,68 +223,34 @@ def load_subcategories(
         level: int = 1
 ) -> dict:
     category_parent = f'. {Fore.CYAN}Родитель - {category.get("parent")}{Style.RESET_ALL}' if category.get("parent") else ""
-    print(f'{level * "-" if level != 1 else ""}{category["name"]}{category_parent}')
+    print(f'{level * "- " if level != 1 else ""}{category["name"]}{category_parent}')
     result = []
-    page = context.new_page()
-    try:
-        page.route("**/*", route_handler)
-
-        page.goto(
-            f"{TARGET_URL}{category['url']}",
-            timeout=120000,  # 2 минуты на загрузку
-            wait_until="domcontentloaded"  # Ждем только загрузки DOM, а не всех ресурсов
-        )
-        page.wait_for_timeout(TIME_WAIT)
+    while True:
+        page = context.new_page()
         try:
-            try:
-                # Ждем появления меню с категориями subcategory-item
-                page.wait_for_selector(selector='ul.menu-category__subcategory',
-                                       state="visible",
-                                       timeout=TIME_WAIT)
-                # Получаем все элементы меню (включая заголовки)
-                menu_items = page.query_selector_all('li.menu-category__subcategory-item')
+            page.route("**/*", route_handler)
 
-                for menu_item in menu_items:
-                    # Извлекаем ссылки
-                    link = menu_item.query_selector('a.menu-category__subcategory-link')
-                    if link:
-                        parent = category['parent'].copy() if category.get('parent') else []
-                        parent.append(category['name'])
-                        result.append({
-                            'name': link.inner_text().strip(),
-                            'url': link.get_attribute('href'),
-                            'parent': parent,
-                        })
-            except:
-                # Ждем появления меню с категориями menu-category__list
-                page.wait_for_selector(selector='ul.menu-category__list',
-                                       state="visible",
-                                       timeout=TIME_WAIT)
-                # Получаем все элементы меню (включая заголовки)
-                menu_items = page.query_selector_all('li.menu-category__item')
+            page.goto(
+                f"{TARGET_URL}{category['url']}",
+                timeout=120000,  # 2 минуты на загрузку
+                # wait_until="domcontentloaded"  # Ждём полной загрузки DOM (но не всех ресурсов)
+                # wait_until="load"  # Ждем только загрузки DOM, а не всех ресурсов
+                wait_until = "networkidle"  # Ждём, пока не закончатся сетевые запросы
+            )
 
-                for menu_item in menu_items:
-                    # Пропускаем заголовки (элементы с тегом <p>)
-                    if menu_item.query_selector('p.menu-category__item'):
-                        continue
+            # page.wait_for_timeout(5000)
+            menu_subcategory = page.locator('ul.menu-category__subcategory')
+            if menu_subcategory.count() > 0:
+                process_menu_items(page, context, category, 'subcategory', level)
+                break
 
-                    # Извлекаем ссылки
-                    link = menu_item.query_selector('a.menu-category__link')
-                    if link:
-                        parent = category['parent'].copy() if category.get('parent') else []
-                        parent.append(category['name'])
-                        result.append({
-                            'name': link.inner_text().strip(),
-                            'url': link.get_attribute('href'),
-                            'parent': parent,
-                        })
-            print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
-            category['subcategories'] = []
-            for item in result:
-                print(f'идем по списку {item["name"]} - {level}')
-                category['subcategories'].append(load_subcategories(item, context, level + 1))
+            menu_list = page.locator('ul.menu-category__list')
+            if menu_list.count() > 0:
+                process_menu_items(page, context, category, 'list', level)
+                break
 
-        except:
+
+
             page.wait_for_timeout(TIME_WAIT)
             # Получаем все элементы "Категория"
             category_filter = page.locator("div.dropdown-filter:has-text('Категория')")
@@ -328,6 +294,7 @@ def load_subcategories(
 
                 print(f'{Fore.YELLOW}{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
                 category['Категория'] = result
+                break
             else:
                 page.wait_for_timeout(TIME_WAIT)
                 btm_burger = page.wait_for_selector('button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name')
@@ -345,6 +312,7 @@ def load_subcategories(
                                 'name': link.inner_text().strip(),
                                 'url': link.get_attribute('href'),
                                 'parent': parent,
+                                'level': level,
                             })
 
                 print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
@@ -354,14 +322,88 @@ def load_subcategories(
                     category['subcategories'].append(load_subcategories(item, context, level + 1))
                 else:
                     print(f'{Fore.GREEN}{level * "-" + "-"} Категорий НЕТ!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
-                    category['Категория'] = f'Категорий нет {level}'
+                    category['Категория'] = f'Категорий нет'
+                break
 
-    except Exception as e:
-        print(f"{Fore.RED}Error processing {category['name']}: {str(e)}{Style.RESET_ALL}")
-    finally:
-        page.close()
+        except Exception as e:
+            print(f"{Fore.RED}Error processing {category['name']}: {str(e)}{Style.RESET_ALL}")
+        finally:
+            page.close()
 
     return category
+
+
+def process_menu_items(
+        page: Page,
+        context: BrowserContext,
+        category: dict,
+        menu_type: str,
+        level: int
+) -> None:
+    """
+    Обрабатывает элементы меню категорий и собирает данные о подкатегориях.
+
+    Парсит структуру меню на странице, извлекая названия и ссылки подкатегорий.
+    Поддерживает два типа меню: 'subcategory' и 'list'.
+
+    Args:
+        page (Page): Экземпляр страницы Playwright.
+        context (BrowserContext): Контекст браузера для создания новых страниц.
+        category (dict): Словарь с данными текущей категории. Должен содержать:
+            - 'name': Название категории
+            - 'url': URL категории
+            - 'parent': Список родительских категорий (опционально)
+        menu_type (str): Тип меню ('subcategory' или 'list').
+        level (int): Текущий уровень вложенности (для отладки).
+
+    Returns:
+        None: Результаты сохраняются в переданном словаре `category`.
+    """
+    selector = {
+        'subcategory': ('li.menu-category__subcategory-item', 'a.menu-category__subcategory-link'),
+        'list': ('li.menu-category__item', 'a.menu-category__link')
+    }[menu_type]
+    result = []
+    menu_items = page.locator(selector[0]).all()
+    for item in menu_items:
+        # Пропускаем элементы-заголовки (с тегом <p>)
+        if menu_type == 'list' and item.locator('p.menu-category__item').count() > 0:
+            continue
+        link = item.locator(selector[1])
+        if link.count() > 0:
+            parent = category['parent'].copy() if category.get('parent') else []
+            parent.append(category['name'])
+            result.append({
+                'name': link.inner_text().strip(),
+                'url': link.get_attribute('href'),
+                'parent': parent,
+                'level': level,
+            })
+
+    print_results_and_load_subcategories(context, category, result, level)
+
+def print_results_and_load_subcategories(
+        context: BrowserContext,
+        category: dict,
+        result: list,
+        level: int
+) -> None:
+    """
+    Выводит результаты парсинга и запускает обработку подкатегорий.
+
+    Args:
+        context (BrowserContext): Контекст браузера для создания новых страниц.
+        category (dict): Словарь текущей категории для сохранения результатов.
+        result (list): Список найденных подкатегорий.
+        level (int): Текущий уровень вложенности (для форматирования вывода).
+    """
+    print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
+    category['subcategories'] = []
+
+    for item in result:
+        print(f'идем по списку {item["name"]} - {level + 1}')
+        category['subcategories'].append(load_subcategories(item, context, level + 1))
+
 
 
 def parse_all_categories() -> list | None:
