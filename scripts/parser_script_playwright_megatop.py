@@ -19,6 +19,7 @@ TIME_WAIT = 1000
 def run_wb_parser():
     result = parse_all_categories()
     process_categories_to_excel(result)
+    print(result)
 
 
 def process_categories_to_excel(
@@ -125,13 +126,8 @@ def create_browser_session(p: Playwright) -> tuple[Browser, BrowserContext]:
     """
     # Запускаем браузер с дополнительными параметрами
     browser = p.chromium.launch(
-        # headless=True,
-        headless=False,
-        # args=[
-        #     "--disable-blink-features=AutomationControlled",
-        # "--no-sandbox",  # если запускаешь в Linux
-        #     "--disable-dev-shm-usage",
-        # ],
+        headless=True,
+        # headless=False,
         timeout=60000,  # Увеличиваем таймаут запуска браузера
         slow_mo=0  # Добавляем задержку между действиями (мс)
     )
@@ -262,7 +258,7 @@ def load_subcategories(
             category_filter = page.locator("div.dropdown-filter:has-text('Категория'):visible")
             if category_filter.count() > 0:
                 category_filter.hover()
-                process_menu_items(page, category, level)
+                load_and_collect_categories(page, category, level)
                 break
 
             # Получаем все элементы dropdown filter__btn--burger
@@ -402,6 +398,7 @@ def load_and_collect_categories(page: Page, category: dict, level: int) -> None:
     category['Категория'] = result
 
 
+
 def load_and_collect_subcategories(page: Page, context: BrowserContext, category: dict, level: int) -> None:
     """
         Загружает и собирает подкатегории с веб-страницы, используя Playwright.
@@ -437,6 +434,7 @@ def load_and_collect_subcategories(page: Page, context: BrowserContext, category
         category['subcategories'].append(load_subcategories(item, context, level + 1))
 
 
+
 def parse_all_categories() -> list | None:
     with (sync_playwright() as p):
         browser, context = create_browser_session(p)
@@ -446,7 +444,7 @@ def parse_all_categories() -> list | None:
             print('Получаю категории')
             main_categories = load_main_categories(context)
             print('- Получаю подкатегории для категорий')
-            for category in main_categories[:3]:
+            for category in main_categories:
                 result.append(load_subcategories(category, context))
 
             return result
