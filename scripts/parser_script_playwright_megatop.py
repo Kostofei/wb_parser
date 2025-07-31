@@ -185,7 +185,7 @@ def load_main_categories(context: BrowserContext) -> list:
         page.goto(
             f"{TARGET_URL}",
             timeout=120000,  # 2 минуты на загрузку
-            wait_until = "networkidle"  # Ждём, пока не закончатся сетевые запросы
+            wait_until="networkidle"  # Ждём, пока не закончатся сетевые запросы
         )
 
         # Ожидаем появления кнопки меню и кликаем по ней
@@ -230,7 +230,8 @@ def load_subcategories(
         context: BrowserContext,
         level: int = 1
 ) -> dict:
-    category_parent = f'. {Fore.CYAN}Родитель - {category.get("parent")}{Style.RESET_ALL}' if category.get("parent") else ""
+    category_parent = f'. {Fore.CYAN}Родитель - {category.get("parent")}{Style.RESET_ALL}' if category.get(
+        "parent") else ""
     print(f'{level * "-" + " " if level != 1 else ""}{category["name"]}{category_parent}')
     while True:
         page = context.new_page()
@@ -242,55 +243,38 @@ def load_subcategories(
                 timeout=120000,  # 2 минуты на загрузку
                 # wait_until="domcontentloaded"  # Ждём полной загрузки DOM (но не всех ресурсов)
                 # wait_until="load"  # Ждем только загрузки DOM, а не всех ресурсов
-                wait_until = "networkidle"  # Ждём, пока не закончатся сетевые запросы
+                wait_until="networkidle"  # Ждём, пока не закончатся сетевые запросы
             )
 
+            # Получаем все элементы category__subcategory
             menu_subcategory = page.locator('ul.menu-category__subcategory')
             if menu_subcategory.count() > 0:
                 process_menu_items(page, context, category, 'subcategory', level)
                 break
 
+            # Получаем все элементы category__list
             menu_list = page.locator('ul.menu-category__list')
             if menu_list.count() > 0:
                 process_menu_items(page, context, category, 'list', level)
                 break
 
-            # Получаем все элементы "Категория"
             category_filter = page.locator("div.dropdown-filter:has-text('Категория'):visible").first
             if category_filter:
                 category_filter.hover()
                 load_and_collect_categories(page, category, level)
                 break
 
-
-            page.wait_for_timeout(TIME_WAIT)
-            btm_burger = page.wait_for_selector('button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name')
+            # Получаем все элементы dropdown - filter__btn - -burger
+            result = []
+            btm_burger = page.locator('button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name').first
             if btm_burger.text_content() not in category.get('parent'):
                 btm_burger.hover()
-                page.wait_for_timeout(TIME_WAIT)
-                all_items = page.query_selector_all('ul.filter-category__list > li.filter-category__item')
-                for item in all_items:
-                    # Извлекаем ссылки
-                    link = item.query_selector('a.filter-category__link')
-                    if link:
-                        parent = category['parent'].copy() if category.get('parent') else []
-                        parent.append(category['name'])
-                        result.append({
-                            'name': link.inner_text().strip(),
-                            'url': link.get_attribute('href'),
-                            'parent': parent,
-                            'level': level,
-                        })
-
-            print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
-            category['subcategories'] = []
-            for item in result:
-                print(f'идем по списку {item["name"]} - {level}')
-                category['subcategories'].append(load_subcategories(item, context, level + 1))
+                load_and_collect_subcategories(page, context, category, level)
+                break
             else:
                 print(f'{Fore.GREEN}{level * "-" + "-"} Категорий НЕТ!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
-                category['Категория'] = f'Категорий нет'
-            break
+                category['Категория'] = 'Категорий нет'
+                break
 
         except Exception as e:
             print(f"{Fore.RED}Обработка ошибок {category['name']}: {str(e)}{Style.RESET_ALL}")
@@ -349,6 +333,7 @@ def process_menu_items(
 
     print_results_and_load_subcategories(context, category, result, level)
 
+
 def print_results_and_load_subcategories(
         context: BrowserContext,
         category: dict,
@@ -373,26 +358,44 @@ def print_results_and_load_subcategories(
 
 
 def load_and_collect_categories(page: Page, category: dict, level: int) -> None:
+    """
+        Загружает и собирает категории с веб-страницы, используя Playwright.
+
+        Эта функция пытается найти и нажать кнопку "Показать все", чтобы загрузить все категории.
+        Затем она собирает все видимые категории и добавляет их в переданный словарь категории.
+
+        Args:
+            page (Page): Страница Playwright, на которой происходит поиск и взаимодействие с элементами.
+            category (dict): Словарь, представляющий категорию, в которую будут добавлены собранные подкатегории.
+            level (int): Уровень вложенности категории, используется для форматирования вывода.
+
+        Raises:
+            PlaywrightTimeoutError: Если происходит таймаут ожидания элемента.
+            Exception: Для других возможных ошибок, которые могут возникнуть во время выполнения.
+    """
     try:
+        page.wait_for_timeout(100)
         show_all_button = page.locator("button.filter__show-all:has-text('Показать все'):visible").first
-        if show_all_button:
+        if show_all_button and show_all_button.is_visible():
             show_all_button.click()
 
-        current_items = page.locator('li.filter__item:visible').all()
-        while True:
-            if not current_items:
-                page.wait_for_timeout(500)
-                current_items = page.locator('li.filter__item:visible').all()
-                continue
+            current_items = page.locator('li.filter__item:visible').all()
+            while True:
+                if not current_items:
+                    page.wait_for_timeout(500)
+                    current_items = page.locator('li.filter__item:visible').all()
+                    continue
 
-            current_items[-1].hover()
-            page.wait_for_timeout(100)
+                current_items[-1].hover()
+                page.wait_for_timeout(100)
 
-            new_items = page.locator('li.filter__item:visible').all()
-            if len(new_items) == len(current_items):
-                break
+                new_items = page.locator('li.filter__item:visible').all()
+                if len(new_items) == len(current_items):
+                    break
 
-            current_items = new_items
+                current_items = new_items
+        else:
+            current_items = page.locator('li.filter__item:visible').all()
 
         result = []
         for item in current_items:
@@ -402,6 +405,51 @@ def load_and_collect_categories(page: Page, category: dict, level: int) -> None:
 
         print(f'{Fore.YELLOW}{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
         category['Категория'] = result
+
+    except PlaywrightTimeoutError:
+        print("Таймаут ожидания элемента")
+    except Exception as e:
+        print(f"Произошла ошибка: {e}")
+
+
+def load_and_collect_subcategories(page: Page, context: BrowserContext, category: dict, level: int) -> None:
+    """
+        Загружает и собирает подкатегории с веб-страницы, используя Playwright.
+
+        Эта функция собирает все видимые подкатегории для заданной категории и добавляет их в словарь категории.
+        Для каждой подкатегории также загружаются её подкатегории рекурсивно.
+
+        Args:
+            page (Page): Страница Playwright, на которой происходит поиск и взаимодействие с элементами.
+            context (BrowserContext): Контекст браузера Playwright, используемый для открытия новых страниц.
+            category (dict): Словарь, представляющий категорию, в которую будут добавлены собранные подкатегории.
+            level (int): Уровень вложенности категории, используется для форматирования вывода.
+
+        Raises:
+            PlaywrightTimeoutError: Если происходит таймаут ожидания элемента.
+            Exception: Для других возможных ошибок, которые могут возникнуть во время выполнения.
+    """
+    result = []
+    try:
+        page.wait_for_timeout(100)
+        all_items = page.locator('ul.filter-category__list > li.filter-category__item').all()
+        for item in all_items:
+            # Извлекаем ссылки
+            link = item.locator('a.filter-category__link').first
+            if link:
+                parent = category['parent'].copy() if category.get('parent') else []
+                parent.append(category['name'])
+                result.append({
+                    'name': link.inner_text().strip(),
+                    'url': link.get_attribute('href'),
+                    'parent': parent,
+                    'level': level,
+                })
+        print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
+        category['subcategories'] = []
+        for item in result:
+            print(f'идем по списку {item["name"]} - {level}')
+            category['subcategories'].append(load_subcategories(item, context, level + 1))
 
     except PlaywrightTimeoutError:
         print("Таймаут ожидания элемента")
