@@ -228,7 +228,7 @@ def load_subcategories(
 ) -> dict:
     category_parent = f'. {Fore.CYAN}Родитель - {category.get("parent")}{Style.RESET_ALL}' if category.get(
         "parent") else ""
-    print(f'{level * "-" + " " if level != 1 else ""}{category["name"]}{category_parent}')
+    # print(f'{level * "-" + " " if level != 1 else ""}{category["name"]}{category_parent}')
     while True:
         page = context.new_page()
         try:
@@ -268,7 +268,7 @@ def load_subcategories(
                 load_and_collect_subcategories(page, context, category, level)
                 break
             else:
-                print(f'{Fore.GREEN}{level * "-" + "-"} Категорий НЕТ!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
+                # print(f'{Fore.GREEN}{level * "-" + "-"} Категорий НЕТ!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
                 category['Категория'] = 'Категорий нет'
                 break
 
@@ -345,11 +345,11 @@ def print_results_and_load_subcategories(
         result (list): Список найденных подкатегорий.
         level (int): Текущий уровень вложенности (для форматирования вывода).
     """
-    print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
+    # print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
     category['subcategories'] = []
 
     for item in result:
-        print(f'идем по списку {item["name"]} - {level + 1}')
+        # print(f'идем по списку {item["name"]} - {level + 1}')
         category['subcategories'].append(load_subcategories(item, context, level + 1))
 
 
@@ -394,9 +394,8 @@ def load_and_collect_categories(page: Page, category: dict, level: int) -> None:
         if link:
             result.append(link.inner_text().strip())
 
-    print(f'{Fore.YELLOW}{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
+    # print(f'{Fore.YELLOW}{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
     category['Категория'] = result
-
 
 
 def load_and_collect_subcategories(page: Page, context: BrowserContext, category: dict, level: int) -> None:
@@ -427,12 +426,11 @@ def load_and_collect_subcategories(page: Page, context: BrowserContext, category
                 'parent': parent,
                 'level': level,
             })
-    print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
+    # print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
     category['subcategories'] = []
     for item in result:
-        print(f'идем по списку {item["name"]} - {level}')
+        # print(f'идем по списку {item["name"]} - {level}')
         category['subcategories'].append(load_subcategories(item, context, level + 1))
-
 
 
 def parse_all_categories() -> list | None:
@@ -444,7 +442,8 @@ def parse_all_categories() -> list | None:
             print('Получаю категории')
             main_categories = load_main_categories(context)
             print('- Получаю подкатегории для категорий')
-            for category in main_categories:
+            for category in [main_categories[-1]]:
+                print(category['name'])
                 result.append(load_subcategories(category, context))
 
             return result
