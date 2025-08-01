@@ -3,7 +3,8 @@ import asyncio
 import time
 import tracemalloc
 from functools import wraps
-from playwright.async_api import (async_playwright, TimeoutError as PlaywrightTimeoutError, Page, Playwright, Browser, BrowserContext)
+from playwright.async_api import (async_playwright, TimeoutError as PlaywrightTimeoutError,
+                                  Page, Playwright, Browser, BrowserContext)
 
 
 # Константы
