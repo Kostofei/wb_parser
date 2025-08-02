@@ -59,13 +59,6 @@ def timeit(func):
     return wrapper
 
 
-@timeit
-async def run_wb_parser():
-    result = await parse_all_categories()
-    await process_categories_to_excel(result)
-    # print(result)
-
-
 async def process_categories_to_excel(
         initial_data: list[dict],
         output_filename: str = "categories.xlsx",
@@ -405,7 +398,7 @@ async def load_subcategories(
         if flag:
             print(f'{level * "-" + " " if level != 1 else ""}{category["name"]}{category_parent}')
 
-        MAX_ATTEMPTS = 3  # Максимальное количество попыток
+        MAX_ATTEMPTS = 5  # Максимальное количество попыток
         attempt = 0
 
         while attempt < MAX_ATTEMPTS:
@@ -424,13 +417,13 @@ async def load_subcategories(
                 # Получаем все элементы category__subcategory
                 menu_subcategory = page.locator('ul.menu-category__subcategory')
                 if await menu_subcategory.count() > 0:
-                    await process_menu_items(page, context, category, 'subcategory', level)
+                    await collecting_menu_items(page, context, category, 'subcategory', level)
                     break
 
                 # Получаем все элементы category__list
                 menu_list = page.locator('ul.menu-category__list')
                 if await menu_list.count() > 0:
-                    await process_menu_items(page, context, category, 'list', level)
+                    await collecting_menu_items(page, context, category, 'list', level)
                     break
 
                 # Получаем все элементы dropdown dropdown-filter
@@ -459,7 +452,7 @@ async def load_subcategories(
     return category
 
 
-async def process_menu_items(
+async def collecting_menu_items(
         page: Page,
         context: BrowserContext,
         category: dict,
@@ -629,7 +622,8 @@ async def load_and_collect_subcategories(
         category['subcategories'] = await asyncio.gather(*tasks, return_exceptions=False)
 
 
-async def parse_all_categories(max_concurrent_tasks: int = 3) -> list | None:
+@timeit
+async def run_parse_categories(max_concurrent_tasks: int = 3) -> list | None:
     async with (async_playwright() as p):
         browser, context = await create_browser_session(p)
 
@@ -647,6 +641,7 @@ async def parse_all_categories(max_concurrent_tasks: int = 3) -> list | None:
 
             # Фильтруем результаты, удаляя исключения
             valid_results = [r for r in results if not isinstance(r, Exception)]
+            await process_categories_to_excel(valid_results)
             return valid_results
 
         except PlaywrightTimeoutError as e:
@@ -663,5 +658,7 @@ async def parse_all_categories(max_concurrent_tasks: int = 3) -> list | None:
             await browser.close()
 
 
+
+
 if __name__ == "__main__":
-    asyncio.run(run_wb_parser())
+    asyncio.run(run_parse_categories())
