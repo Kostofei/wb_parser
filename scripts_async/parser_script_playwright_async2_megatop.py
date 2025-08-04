@@ -2,11 +2,12 @@ import os
 import re
 import time
 import asyncio
+import aiofiles
 import pandas as pd
+from typing import Coroutine, Any
 from functools import wraps
 from openpyxl import Workbook
 from openpyxl.styles import Alignment
-import aiofiles
 from io import BytesIO
 from asyncio import to_thread
 from colorama import Fore, Style, init  # Цветной print
@@ -60,9 +61,7 @@ def timeit(func):
 
 
 async def process_categories_to_excel(
-        initial_data: list[dict],
-        output_filename: str = "categories.xlsx",
-        exclude_root_in_path: bool = True
+        initial_data: list[dict], output_filename: str = "categories.xlsx", exclude_root_in_path: bool = True
 ) -> None:
     """
     Обрабатывает категории и сохраняет их в Excel файл с уровнями вложенности
@@ -125,9 +124,7 @@ async def get_unique_filename(base_filename: str) -> str:
 
 
 async def _write_categories_to_excel(
-        initial_data: list[dict],
-        output_filename: str,
-        exclude_root_in_path: bool
+        initial_data: list[dict], output_filename: str, exclude_root_in_path: bool
 ) -> None:
     """
     Асинхронно записывает категории в Excel файл
@@ -299,7 +296,7 @@ async def create_browser_session(p: Playwright) -> tuple[Browser, BrowserContext
         user_agent='Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
         # Дополнительные настройки защиты от обнаружения
         bypass_csp=True,
-        java_script_enabled=True
+        java_script_enabled=True,
     )
 
     return browser, context
@@ -343,7 +340,7 @@ async def load_main_categories(context: BrowserContext) -> list:
         # Увеличиваем таймаут навигации и отключаем ожидание полной загрузки
         await page.goto(
             f"{TARGET_URL}",
-            timeout=120000,  # 2 минуты на загрузку
+            timeout=600000,  # 10 минуты на загрузку
             wait_until="networkidle"  # Ждём, пока не закончатся сетевые запросы
         )
 
@@ -386,79 +383,72 @@ async def load_main_categories(context: BrowserContext) -> list:
 
 
 async def load_subcategories(
-        category: dict,
-        context: BrowserContext,
-        sem: asyncio.Semaphore,
-        level: int = 1,
-        flag: bool = True
-) -> dict:
-    async with sem:
-        category_parent = f'. {Fore.CYAN}Родитель - {category.get("parent")}{Style.RESET_ALL}' if category.get(
-            "parent") else ""
-        if flag:
-            print(f'{level * "-" + " " if level != 1 else ""}{category["name"]}{category_parent}')
+        category: dict, page: Page, context: BrowserContext, level: int, flag: bool) -> dict:
+    category_parent = f'. {Fore.CYAN}Родитель - {category.get("parent")}{Style.RESET_ALL}' if category.get(
+        "parent") else ""
+    if flag:
+        print(f'{level * "-" + " " if level != 1 else ""}{category["name"]}{category_parent}')
 
-        MAX_ATTEMPTS = 5  # Максимальное количество попыток
-        attempt = 0
+    MAX_ATTEMPTS = 5  # Максимальное количество попыток
+    attempt = 0
 
-        while attempt < MAX_ATTEMPTS:
-            attempt += 1
-            page = await context.new_page()
-            try:
-                await page.route("**/*", route_handler)
-                await page.goto(
-                    f"{TARGET_URL}{category['url']}",
-                    timeout=120000,  # 2 минуты на загрузку
-                    # wait_until="domcontentloaded"  # Ждём полной загрузки DOM (но не всех ресурсов)
-                    # wait_until="load"  # Ждем только загрузки DOM, а не всех ресурсов
-                    wait_until="networkidle"  # Ждём, пока не закончатся сетевые запросы
-                )
+    while attempt < MAX_ATTEMPTS:
+        attempt += 1
+        try:
+            await page.goto(
+                f"{TARGET_URL}{category['url']}",
+                timeout=600000,  # 10 минуты на загрузку
+                # wait_until="domcontentloaded"  # Ждём полной загрузки DOM (но не всех ресурсов)
+                # wait_until="load"  # Ждем только загрузки DOM, а не всех ресурсов
+                wait_until="networkidle"  # Ждём, пока не закончатся сетевые запросы
+            )
 
-                # Получаем все элементы category__subcategory
-                menu_subcategory = page.locator('ul.menu-category__subcategory')
-                if await menu_subcategory.count() > 0:
-                    await collecting_menu_items(page, context, category, 'subcategory', level)
-                    break
+            # Получаем все элементы category__subcategory
+            menu_subcategory = page.locator('ul.menu-category__subcategory')
+            if await menu_subcategory.count() > 0:
+                await collecting_menu_items(category, page, context, 'subcategory', level)
+                break
 
-                # Получаем все элементы category__list
-                menu_list = page.locator('ul.menu-category__list')
-                if await menu_list.count() > 0:
-                    await collecting_menu_items(page, context, category, 'list', level)
-                    break
+            # Получаем все элементы category__list
+            menu_list = page.locator('ul.menu-category__list')
+            if await menu_list.count() > 0:
+                await collecting_menu_items(category, page, context, 'list', level)
+                break
 
-                # Получаем все элементы dropdown dropdown-filter
-                category_filter = page.locator("div.dropdown-filter:has-text('Категория'):visible")
-                if await category_filter.count() > 0:
-                    await category_filter.hover()
-                    await load_and_collect_categories(page, category, level)
-                    break
+            # Получаем все элементы dropdown dropdown-filter
+            category_filter = page.locator("div.dropdown-filter:has-text('Категория'):visible")
+            if await category_filter.count() > 0:
+                await category_filter.hover()
+                await load_and_collect_categories(category, page, level)
+                break
 
-                # Получаем все элементы dropdown filter__btn--burger
+            # Получаем все элементы dropdown filter__btn--burger
+            element = page.locator('li.breadcrumbs__item:nth-child(2) span[itemprop="name"]')
+            if await element.text_content() == category.get('parent')[0]:
                 btm_burger = page.locator('button.dropdown-filter__btn--burger > div.dropdown-filter__btn-name').first
                 if await  btm_burger.text_content() not in category.get('parent'):
                     await btm_burger.hover()
-                    await load_and_collect_subcategories(page, context, category, level)
+                    await load_and_collect_subcategories(category, page, context, level)
                     break
                 else:
-                    # print(f'{Fore.GREEN}{level * "-" + "-"} Категорий НЕТ!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
+                    print(f'{Fore.GREEN}{level * "-" + "-"} Категорий НЕТ!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
                     category['Категория'] = 'Категорий нет'
                     break
+            else:
+                print(f'{Fore.GREEN}{level * "-" + "-"} Переход в другую основную категорию!, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
+                category['Категория'] = 'Переход в другую основную категорию'
 
-            except Exception as e:
-                print(f"{Fore.RED}Обработка ошибок {category['name']}: {str(e)}{Style.RESET_ALL}")
-            finally:
-                await page.close()
+        except Exception as e:
+            print(f"{Fore.RED}Обработка ошибок {category['name']}: {str(e)}{Style.RESET_ALL}")
+        finally:
+            pass
+        print('Повторяем процедуру')
 
     return category
 
 
 async def collecting_menu_items(
-        page: Page,
-        context: BrowserContext,
-        category: dict,
-        menu_type: str,
-        level: int
-) -> None:
+        category: dict, page: Page, context: BrowserContext, menu_type: str, level: int) -> None:
     """
     Обрабатывает элементы меню категорий и собирает данные о подкатегориях.
 
@@ -495,54 +485,32 @@ async def collecting_menu_items(
             result.append({
                 'name': (await link.inner_text()).strip(),
                 'url': await link.get_attribute('href'),
+                'subcategories': [],
                 'parent': parent,
                 'level': level,
             })
 
-    await print_results_and_load_subcategories(context, category, result, level)
+    await print_results_and_load_subcategories(category, page, context, result, level)
 
 
 async def print_results_and_load_subcategories(
-        context: BrowserContext,
-        category: dict,
-        result: list,
-        level: int,
-        max_concurrent_tasks: int = 2
-) -> None:
-    """
-    Выводит результаты парсинга и запускает обработку подкатегорий.
-
-    Args:
-        context (BrowserContext): Контекст браузера для создания новых страниц.
-        category (dict): Словарь текущей категории для сохранения результатов.
-        result (list): Список найденных подкатегорий.
-        level (int): Текущий уровень вложенности (для форматирования вывода).
-        max_concurrent_tasks (int): Указывает конкретное число ограничения.
-    """
-    # print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
-    category['subcategories'] = []
+        category: dict, page: Page, context: BrowserContext, result: list, level: int) -> None:
+    """Выводит результаты парсинга и запускает обработку подкатегорий."""
+    print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
 
     if result:
-        # print(f'Получаю подкатегории {level}')
-        sub_sem = asyncio.Semaphore(max_concurrent_tasks)
-        tasks = [load_subcategories(item, context, sub_sem, level + 1, False) for item in result]
-        category['subcategories'] = await asyncio.gather(*tasks, return_exceptions=False)
+        for item in result:
+            print(f'Получаю подкатегории {level}')
+            category['subcategories'].append(await load_subcategories(item, page, context, level+1, False))
 
 
 async def load_and_collect_categories(
-        page: Page,
-        category: dict,
-        level: int) -> None:
+        category: dict, page: Page, level: int) -> None:
     """
         Загружает и собирает категории с веб-страницы, используя Playwright.
 
         Эта функция пытается найти и нажать кнопку "Показать все", чтобы загрузить все категории.
         Затем она собирает все видимые категории и добавляет их в переданный словарь категории.
-
-        Args:
-            page (Page): Страница Playwright, на которой происходит поиск и взаимодействие с элементами.
-            category (dict): Словарь, представляющий категорию, в которую будут добавлены собранные подкатегории.
-            level (int): Уровень вложенности категории, используется для форматирования вывода.
     """
     await page.wait_for_timeout(100)
     show_all_button = page.locator("button.filter__show-all:has-text('Показать все'):visible").first
@@ -573,17 +541,12 @@ async def load_and_collect_categories(
         if link:
             result.append((await link.inner_text()).strip())
 
-    # print(f'{Fore.YELLOW}{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
+    print(f'{Fore.YELLOW}{level * "-" + "-"} Категорий {len(result)}, [Родитель: {category["name"]}], {level}{Style.RESET_ALL}')
     category['Категория'] = result
 
 
 async def load_and_collect_subcategories(
-        page: Page,
-        context: BrowserContext,
-        category: dict,
-        level: int,
-        max_concurrent_tasks: int = 2
-) -> None:
+        category: dict, page: Page, context: BrowserContext, level: int) -> None:
     """
         Загружает и собирает подкатегории с веб-страницы, используя Playwright.
 
@@ -609,21 +572,45 @@ async def load_and_collect_subcategories(
             result.append({
                 'name': (await link.inner_text()).strip(),
                 'url': await link.get_attribute('href'),
+                'subcategories': [],
                 'parent': parent,
                 'level': level,
             })
-    # print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
-    category['subcategories'] = []
 
     if result:
-        # print(f'Получаю подкатегории {level}')
-        sub_sem = asyncio.Semaphore(max_concurrent_tasks)
-        tasks = [load_subcategories(item, context, sub_sem, level + 1, False) for item in result]
-        category['subcategories'] = await asyncio.gather(*tasks, return_exceptions=False)
+        print(f"{Fore.BLUE}{[i['name'] for i in result]}{Style.RESET_ALL}")
+        pages = context.pages
+        if len(pages) <= 10:
+            print(f'Получаю подкатегории {level}')
+            sub_sem = asyncio.Semaphore(5)  # Максимум X задач одновременно
+            tasks = [run_tasks_parser(item, context, sub_sem, level,False) for item in result]
+            category['subcategories'] = await asyncio.gather(*tasks, return_exceptions=False)
+        else:
+            for item in result:
+                print(f'Получаю подкатегории {level}')
+                category['subcategories'].append(await load_subcategories(item, page, context, level + 1, False))
+    else:
+        raise ValueError(f'НЕТ данных! {TARGET_URL}{category.get("url")}')
+
+
+async def run_tasks_parser(
+        category: dict, context: BrowserContext, sem: asyncio.Semaphore, level: int = 1, flag: bool = True) -> dict:
+    tasks = asyncio.all_tasks()
+    async with sem:
+        page = await context.new_page()
+        page.set_default_timeout(30000)
+        await page.route("**/*", route_handler)
+        try:
+            result = await load_subcategories(category, page, context, level, flag)
+            pending = [t for t in tasks if not t.done()]
+            print(f'ОСТАЛОСЬ {len(pending)-3} заданий')
+            return result
+        finally:
+            await page.close()  # Закроет страницу даже при ошибке
 
 
 @timeit
-async def run_parse_categories(max_concurrent_tasks: int = 3) -> list | None:
+async def run_parser_categories() -> list | None:
     async with (async_playwright() as p):
         browser, context = await create_browser_session(p)
 
@@ -634,15 +621,14 @@ async def run_parse_categories(max_concurrent_tasks: int = 3) -> list | None:
                 raise ValueError("Не удалось загрузить категории (пустой список)")
 
             print('- Получаю подкатегории для категорий')
-            sem = asyncio.Semaphore(max_concurrent_tasks)  # Максимум X задач одновременно
-            tasks = [load_subcategories(category, context, sem) for category in categories[:5]]
-            # tasks = [load_subcategories(category, context, sem) for category in [categories[12], categories[-1]]]
+            sem = asyncio.Semaphore(10)  # Максимум X задач одновременно
+            tasks =  [run_tasks_parser(category, context, sem) for category in categories]
             results = await asyncio.gather(*tasks)
 
             # Фильтруем результаты, удаляя исключения
             valid_results = [r for r in results if not isinstance(r, Exception)]
+            print(valid_results)
             await process_categories_to_excel(valid_results)
-            return valid_results
 
         except PlaywrightTimeoutError as e:
             print(f"{Fore.BLUE}Timeout error occurred: {e}{Style.RESET_ALL}")
@@ -658,7 +644,5 @@ async def run_parse_categories(max_concurrent_tasks: int = 3) -> list | None:
             await browser.close()
 
 
-
-
 if __name__ == "__main__":
-    asyncio.run(run_parse_categories())
+    asyncio.run(run_parser_categories())

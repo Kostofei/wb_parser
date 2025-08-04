@@ -21,7 +21,7 @@ TIME_WAIT = 1000
 @timeit
 def run_wb_parser():
     result = parse_all_categories()
-    process_categories_to_excel (result)
+    process_categories_to_excel(result)
     print(result)
 
 
